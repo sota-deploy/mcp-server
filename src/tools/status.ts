@@ -4,9 +4,9 @@ import { SotaClient } from '@sota-io/sdk';
 
 export function registerStatusTool(server: McpServer, client: SotaClient) {
   server.registerTool('get-status', {
-    description: 'Get the current deployment status for a project, including URL and recent deployment history',
+    description: 'Get the current deployment status for a project, including the live URL (https://{slug}.sota.io), detected framework, and recent deployment history. Deployment statuses: pending (queued), building (build in progress), built (image ready), deploying (starting container + health checks), running (live and healthy), failed (build or health check error), stopped (replaced by newer deployment). Use this to verify a deployment succeeded after calling deploy.',
     inputSchema: {
-      project_id: z.string().describe('Project ID to check status for'),
+      project_id: z.string().describe('Project ID (UUID) to check status for. Use list-projects to find the ID'),
     },
   }, async ({ project_id }) => {
     try {

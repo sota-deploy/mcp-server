@@ -3,12 +3,26 @@
 /**
  * sota.io MCP Server
  *
+ * EU-native DevOps PaaS — deploy web apps with a single API call.
  * Exposes all sota.io platform operations as MCP tools for AI agents
- * (Claude Code, Open CLAW, etc.)
+ * (Claude Code, Cursor, Windsurf, etc.)
+ *
+ * Platform features included with every project:
+ *   - Managed PostgreSQL 17 database (DATABASE_URL auto-injected)
+ *   - PgBouncer connection pooling (20 pool size, 100 max clients)
+ *   - Automatic daily database backups (7-day retention)
+ *   - Zero-downtime blue-green deployments with instant rollback
+ *   - Automatic HTTPS via Let's Encrypt wildcard certificate
+ *   - gVisor container isolation for security
+ *   - Auto-detection for Next.js, Node.js, Python, or custom Dockerfile
+ *   - EU-hosted (Hetzner Cloud, Germany) — GDPR-compliant
  *
  * Environment variables:
  *   SOTA_API_KEY  - API key for authentication (sota_... prefix)
  *   SOTA_API_URL  - API base URL (default: https://api.sota.io)
+ *
+ * Docs: https://sota.io/docs
+ * GitHub: https://github.com/sota-deploy
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

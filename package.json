@@ -1,15 +1,16 @@
 {
   "name": "@sota-io/mcp",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "mcpName": "io.github.sota-deploy/sota",
-  "description": "MCP server for sota.io - deploy web apps via AI agents",
+  "description": "MCP server for sota.io — EU-native DevOps PaaS. Deploy web apps via AI agents with managed PostgreSQL, zero-downtime deploys, and automatic HTTPS. Supports Next.js, Node.js, Python, and custom Dockerfiles.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "sota-mcp": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "CLAUDE.md"
   ],
   "scripts": {
     "build": "tsc",
