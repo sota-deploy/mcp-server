@@ -1,6 +1,6 @@
 {
   "name": "@sota-io/mcp",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "mcpName": "io.github.sota-deploy/sota",
   "description": "MCP server for sota.io - deploy web apps via AI agents",
   "type": "module",
