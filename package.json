@@ -1,0 +1,51 @@
+{
+  "name": "@sota-io/mcp",
+  "version": "1.0.0",
+  "mcpName": "io.github.sota-io/sota",
+  "description": "MCP server for sota.io - deploy web apps via AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "sota-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sota-deploy/mcp-server.git"
+  },
+  "homepage": "https://sota.io/docs/mcp",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "sota",
+    "deploy",
+    "paas",
+    "ai-agent",
+    "claude",
+    "devops"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.0.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}
