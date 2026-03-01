@@ -2,7 +2,8 @@
 
 MCP server for [sota.io](https://sota.io) — deploy web apps via AI agents.
 
-[![npm](https://img.shields.io/npm/v/@sota-io/mcp)](https://www.npmjs.com/package/@sota-io/mcp)
+[![npm version](https://img.shields.io/npm/v/@sota-io/mcp)](https://www.npmjs.com/package/@sota-io/mcp)
+[![npm downloads](https://img.shields.io/npm/dm/@sota-io/mcp)](https://www.npmjs.com/package/@sota-io/mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
 
