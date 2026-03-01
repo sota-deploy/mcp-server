@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SotaAPIClient } from '../api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 
-export function registerRollbackTool(server: McpServer, client: SotaAPIClient) {
+export function registerRollbackTool(server: McpServer, client: SotaClient) {
   server.registerTool('rollback', {
     description: 'Rollback a project to its previous deployment. This swaps the container image without rebuilding.',
     inputSchema: {

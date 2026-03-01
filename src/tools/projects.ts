@@ -1,12 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SotaAPIClient } from '../api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 
-export function registerProjectTools(server: McpServer, client: SotaAPIClient) {
+export function registerProjectTools(server: McpServer, client: SotaClient) {
   server.registerTool('list-projects', {
     description: 'List all projects on your sota.io account',
   }, async () => {
-    const projects = await client.listProjects();
+    const { projects } = await client.listProjects();
     const lines = projects.map(
       (p) => `${p.name} (${p.slug}) - ID: ${p.id}`
     );
@@ -28,7 +28,7 @@ export function registerProjectTools(server: McpServer, client: SotaAPIClient) {
       name: z.string().describe('Name for the new project'),
     },
   }, async ({ name }) => {
-    const project = await client.createProject(name);
+    const project = await client.createProject({ name });
     return {
       content: [
         {

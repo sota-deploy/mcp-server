@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SotaAPIClient } from '../api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 
-export function registerLogsTool(server: McpServer, client: SotaAPIClient) {
+export function registerLogsTool(server: McpServer, client: SotaClient) {
   server.registerTool('get-logs', {
     description: 'Get build and runtime logs for a deployment. If no deployment_id is provided, returns logs for the latest deployment.',
     inputSchema: {
@@ -15,7 +15,7 @@ export function registerLogsTool(server: McpServer, client: SotaAPIClient) {
 
       if (!deployId) {
         // Get latest deployment
-        const deployments = await client.getDeployments(project_id);
+        const deployments = await client.listDeployments(project_id) ?? [];
         if (deployments.length === 0) {
           return {
             content: [

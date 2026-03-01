@@ -13,7 +13,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { SotaAPIClient } from './api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 import { registerProjectTools } from './tools/projects.js';
 import { registerDeployTool } from './tools/deploy.js';
 import { registerLogsTool } from './tools/logs.js';
@@ -31,11 +31,11 @@ async function main() {
 
   const apiURL = process.env.SOTA_API_URL || 'https://api.sota.io';
 
-  const client = new SotaAPIClient(apiURL, apiKey);
+  const client = new SotaClient({ apiKey, baseUrl: apiURL });
 
   const server = new McpServer({
     name: 'sota',
-    version: '1.0.0',
+    version: '1.1.0',
   });
 
   // Register all tools

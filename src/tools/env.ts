@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SotaAPIClient } from '../api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 
-export function registerEnvTools(server: McpServer, client: SotaAPIClient) {
+export function registerEnvTools(server: McpServer, client: SotaClient) {
   server.registerTool('set-env', {
     description: 'Set an environment variable for a project',
     inputSchema: {
@@ -12,7 +12,7 @@ export function registerEnvTools(server: McpServer, client: SotaAPIClient) {
     },
   }, async ({ project_id, key, value }) => {
     try {
-      await client.setEnvVar(project_id, key, value);
+      await client.setEnvVar(project_id, { key, value });
       return {
         content: [
           {

@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SotaAPIClient } from '../api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 
-export function registerStatusTool(server: McpServer, client: SotaAPIClient) {
+export function registerStatusTool(server: McpServer, client: SotaClient) {
   server.registerTool('get-status', {
     description: 'Get the current deployment status for a project, including URL and recent deployment history',
     inputSchema: {
@@ -10,7 +10,7 @@ export function registerStatusTool(server: McpServer, client: SotaAPIClient) {
     },
   }, async ({ project_id }) => {
     try {
-      const deployments = await client.getDeployments(project_id);
+      const deployments = await client.listDeployments(project_id) ?? [];
 
       if (deployments.length === 0) {
         return {

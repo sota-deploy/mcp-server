@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { SotaAPIClient } from '../api-client.js';
+import { SotaClient } from '@sota-io/sdk';
 
-export function registerDeployTool(server: McpServer, client: SotaAPIClient) {
+export function registerDeployTool(server: McpServer, client: SotaClient) {
   server.registerTool('deploy', {
     description: 'Deploy an application to sota.io. Creates a tar.gz archive of the specified directory and uploads it.',
     inputSchema: {
