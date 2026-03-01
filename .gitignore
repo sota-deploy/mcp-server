@@ -1,3 +1,5 @@
 node_modules/
 dist/
-*.tgz
+.npmrc
+.mcpregistry_github_token
+.mcpregistry_registry_token
