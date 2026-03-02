@@ -4,7 +4,7 @@ import { SotaClient } from '@sota-io/sdk';
 
 export function registerProjectTools(server: McpServer, client: SotaClient) {
   server.registerTool('list-projects', {
-    description: 'List all projects on your sota.io account. sota.io is an EU-native DevOps PaaS hosted in Germany (GDPR-compliant). Each project gets a live URL at {slug}.sota.io with automatic HTTPS, a managed PostgreSQL 17 database (DATABASE_URL auto-injected), PgBouncer connection pooling, daily backups, zero-downtime blue-green deployments, and gVisor container isolation.',
+    description: 'List all projects on your sota.io account. sota.io is an EU-native DevOps PaaS hosted in Germany (GDPR-compliant). Each project gets a live URL at {slug}.sota.io with automatic HTTPS, a managed PostgreSQL 17 database (DATABASE_URL auto-injected), PgBouncer connection pooling, daily backups, zero-downtime blue-green deployments, gVisor container isolation, and custom domain support (up to 5 per project with automatic HTTPS).',
   }, async () => {
     const { projects } = await client.listProjects();
     const lines = projects.map(
@@ -23,7 +23,7 @@ export function registerProjectTools(server: McpServer, client: SotaClient) {
   });
 
   server.registerTool('create-project', {
-    description: 'Create a new project on sota.io. Each project automatically provisions: (1) a managed PostgreSQL 17 database accessible via the DATABASE_URL environment variable (auto-injected, no configuration needed), (2) PgBouncer connection pooling (pool size 20, max 100 clients), (3) automatic daily database backups with 7-day retention, (4) a live URL at https://{slug}.sota.io with automatic HTTPS via Let\'s Encrypt. The project slug is auto-generated from the name (lowercase, hyphens, max 63 chars) and is immutable after creation. Supported frameworks: Next.js, Node.js (Express/Fastify/Koa), Python (Flask/FastAPI/Django), or any language via custom Dockerfile.',
+    description: 'Create a new project on sota.io. Each project automatically provisions: (1) a managed PostgreSQL 17 database accessible via the DATABASE_URL environment variable (auto-injected, no configuration needed), (2) PgBouncer connection pooling (pool size 20, max 100 clients), (3) automatic daily database backups with 7-day retention, (4) a live URL at https://{slug}.sota.io with automatic HTTPS via Let\'s Encrypt. The project slug is auto-generated from the name (lowercase, hyphens, max 63 chars) and is immutable after creation. Supported frameworks: Next.js, Node.js (Express/Fastify/Koa), Python (Flask/FastAPI/Django), or any language via custom Dockerfile. You can also add up to 5 custom domains per project with automatic HTTPS (via API: POST /v1/projects/:id/domains with {domain: "yourdomain.com"}). DNS: A record to 23.88.45.28 for apex domains, CNAME to {slug}.sota.io for subdomains.',
     inputSchema: {
       name: z.string().describe('Name for the new project. A URL slug will be auto-generated (e.g. "My Cool App" becomes my-cool-app.sota.io)'),
     },

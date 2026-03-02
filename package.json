@@ -1,6 +1,6 @@
 {
   "name": "@sota-io/mcp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "mcpName": "io.github.sota-deploy/sota",
   "description": "MCP server for sota.io — EU-native DevOps PaaS. Deploy web apps via AI agents with managed PostgreSQL, zero-downtime deploys, and automatic HTTPS. Supports Next.js, Node.js, Python, and custom Dockerfiles.",
   "type": "module",
@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
-    "@sota-io/sdk": "^1.0.2",
+    "@sota-io/sdk": "^1.1.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {

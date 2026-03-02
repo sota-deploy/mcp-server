@@ -53,6 +53,21 @@ If your app needs tables, run migrations on startup:
 - Changing env vars does NOT auto-redeploy. Deploy again to apply.
 - Next.js `NEXT_PUBLIC_*` vars: set BEFORE deploying (build-time embedding).
 
+## Custom Domains
+
+Every project can have up to 5 custom domains with automatic HTTPS via Let's Encrypt.
+
+- **Apex domains** (example.com): Add an A record pointing to `23.88.45.28` (edge proxy).
+- **Subdomains** (app.example.com): Add a CNAME record pointing to `{slug}.sota.io`.
+- SSL certificates are provisioned automatically via HTTP-01 challenge after DNS verification.
+- Domain statuses: `pending` (waiting for DNS) → `verified` (SSL provisioning) → `active` (live with HTTPS).
+
+Manage via API:
+- `POST /v1/projects/:id/domains` — Add domain (body: `{"domain": "yourdomain.com"}`)
+- `GET /v1/projects/:id/domains` — List domains
+- `GET /v1/projects/:id/domains/:domainId` — Get domain with DNS instructions
+- `DELETE /v1/projects/:id/domains/:domainId` — Remove domain
+
 ## Deployment Workflow for AI Agents
 
 ```
