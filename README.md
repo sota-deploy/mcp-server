@@ -130,6 +130,10 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 | `list-projects` | List all projects | *(none)* |
 | `create-project` | Create a new project | `name` |
 | `delete-project` | Delete a project permanently | `project_id` |
+| `add-domain` | Add custom domain to project | `project_id`, `domain` |
+| `list-domains` | List custom domains | `project_id` |
+| `get-domain` | Get domain details and DNS status | `project_id`, `domain_id` |
+| `remove-domain` | Remove custom domain | `project_id`, `domain_id` |
 
 ### `deploy`
 
@@ -239,6 +243,57 @@ Delete a project and all its deployments from sota.io. This action is permanent.
 
 ```
 "Delete my sota.io project abc123"
+```
+
+### `add-domain`
+
+Add a custom domain to a project. Returns DNS instructions for pointing the domain.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project ID |
+| `domain` | string | Yes | Domain name (e.g., "example.com" or "app.example.com") |
+
+```
+"Add example.com as a custom domain to my project"
+```
+
+### `list-domains`
+
+List all custom domains for a project.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project ID |
+
+```
+"Show all custom domains for my project"
+```
+
+### `get-domain`
+
+Get domain details including DNS verification status and SSL state.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project ID |
+| `domain_id` | string | Yes | Domain ID |
+
+```
+"Check the DNS status of my custom domain"
+```
+
+### `remove-domain`
+
+Remove a custom domain from a project.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project ID |
+| `domain_id` | string | Yes | Domain ID to remove |
+
+```
+"Remove the custom domain from my project"
 ```
 
 ## Environment Variables
