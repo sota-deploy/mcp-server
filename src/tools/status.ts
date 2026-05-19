@@ -8,6 +8,7 @@ export function registerStatusTool(server: McpServer, client: SotaClient) {
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to check status for. Use list-projects to find the ID'),
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id }) => {
     try {
       const deployments = await client.listDeployments(project_id) ?? [];

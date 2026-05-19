@@ -8,6 +8,7 @@ export function registerRollbackTool(server: McpServer, client: SotaClient) {
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to rollback. Use list-projects to find the ID'),
     },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id }) => {
     try {
       const deployment = await client.rollback(project_id);

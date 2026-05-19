@@ -1,0 +1,43 @@
+# sota-mcp — HTTP Streamable MCP server for mcp.sota.io
+# Phase 57-01: scaffold + transport + RFC 9728 metadata. OAuth comes in 57-02.
+
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Dependency layer (cache-friendly)
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev=false
+
+# Build
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+# Production deps only
+RUN npm prune --omit=dev
+
+# ───────────────────────────────────────────────────────────────────────────
+FROM node:22-alpine AS runtime
+
+ENV NODE_ENV=production \
+    PORT=8080
+
+WORKDIR /app
+
+# Non-root user
+RUN addgroup -g 1001 -S sota && \
+    adduser -u 1001 -S sota -G sota
+
+COPY --from=builder --chown=sota:sota /app/node_modules ./node_modules
+COPY --from=builder --chown=sota:sota /app/dist ./dist
+COPY --from=builder --chown=sota:sota /app/package.json ./
+
+USER sota
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/health > /dev/null 2>&1 || exit 1
+
+CMD ["node", "dist/http.js"]

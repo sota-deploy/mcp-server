@@ -39,11 +39,17 @@ You do NOT need to:
 - Configure connection strings
 - Set up SSL for the database (internal network, sslmode=disable is safe)
 
-If your app needs tables, run migrations on startup:
-- **Prisma**: `npx prisma migrate deploy` in your start script
-- **Drizzle**: `npx drizzle-kit push` or migrate on startup
-- **SQLAlchemy/Alembic**: `alembic upgrade head` in entrypoint
-- **Django**: `python manage.py migrate` before `gunicorn`
+If your app needs tables, run migrations on startup — there is no shell access to containers. Chain the migration command before your server start:
+
+- **Prisma**: Use `npx prisma db push && node server.js` as your start script. Note: use `db push` (not `migrate deploy`) because PgBouncer transaction mode blocks advisory locks. Add `?pgbouncer=true` to DATABASE_URL in your Prisma schema.
+- **Drizzle**: `npx drizzle-kit push && node server.js` — applies schema changes without migration files, works with PgBouncer.
+- **TypeORM**: `npx typeorm migration:run -d dist/data-source.js && node dist/server.js`
+- **Sequelize**: `npx sequelize-cli db:migrate && node server.js`
+- **Knex**: `npx knex migrate:latest && node server.js`
+- **Django**: `python manage.py migrate --noinput && gunicorn myproject.wsgi --bind 0.0.0.0:$PORT`
+- **Alembic**: `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+Full migration guide: https://sota.io/docs/guides/postgresql
 
 ## Environment Variables
 
@@ -115,6 +121,8 @@ module.exports = { output: 'standalone' }
 | App not accessible | Use `get-status` — must show "running". Check health check (60s timeout). |
 | Env vars not applied | Changing env vars requires redeployment. Call `deploy` again. |
 | Next.js NEXT_PUBLIC_* empty | Set these BEFORE deploying (they're embedded at build time). |
+| Migrations not running | Start script must chain migration before server. Example: `"start": "npx prisma db push && node server.js"` |
+| `prepared statement already exists` | PgBouncer conflict — add `?pgbouncer=true` to DATABASE_URL in Prisma schema. |
 
 ## Links
 

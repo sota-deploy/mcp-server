@@ -7,7 +7,33 @@ MCP server for [sota.io](https://sota.io) — deploy web apps via AI agents.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
 
-## Quick Start
+## Two transports
+
+Since v1.4.0 this package ships **two transports**:
+
+- **`sota-mcp`** (stdio, default) — for Claude Code, Cursor, Windsurf, and any
+  MCP client that spawns a local process. Pass your `SOTA_API_KEY` via env var.
+- **`sota-mcp-http`** (Streamable HTTP) — for self-hosting the remote endpoint
+  that powers `mcp.sota.io` (used by Claude Desktop and Claude.ai web). Reads
+  `SUPABASE_JWT_SECRET`, `DATABASE_URL`, etc. — most users do not need this;
+  it's the same code that runs on `mcp.sota.io` if you want to host your own.
+
+Most users want the stdio transport.
+
+## One-click install for Claude Desktop / Claude.ai web
+
+If you use Claude Desktop or Claude.ai (Pro / Max / Team / Enterprise plan),
+the easiest install is **not** this npm package — it's the hosted remote
+endpoint at `mcp.sota.io`. Click here:
+
+[**Add to Claude →**](https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=sota.io&connectorUrl=https%3A%2F%2Fmcp.sota.io%2Fmcp)
+
+OAuth handles auth. New users can sign up entirely inside Claude via the
+`create_account` tool — no browser tab switch.
+
+See [https://sota.io/docs/integrations/claude](https://sota.io/docs/integrations/claude).
+
+## Quick Start (stdio — Claude Code, Cursor, Windsurf, …)
 
 1. Get an API key from [sota.io/dashboard/settings](https://sota.io/dashboard/settings)
 2. [Configure your IDE](#configuration)

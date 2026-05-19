@@ -16,13 +16,14 @@ export function registerDeployTool(server: McpServer, client: SotaClient) {
 
 IMPORTANT: Your app MUST listen on the PORT environment variable. For auto-detected frameworks (Next.js, Node.js, Python) PORT is 8080. For custom Dockerfiles, the port is auto-detected from the EXPOSE directive (e.g. EXPOSE 3000 sets PORT=3000). If no EXPOSE is found, it defaults to 8080.
 
-Every project includes a managed PostgreSQL 17 database. The DATABASE_URL environment variable is auto-injected into your container — no manual database configuration needed. Your app just needs to read DATABASE_URL to connect. If your app needs database migrations, run them on startup.
+Every project includes a managed PostgreSQL 17 database. Six environment variables are auto-injected into your container — no manual database configuration needed: DATABASE_URL (full connection string), PGHOST, PGPORT, PGUSER, PGPASSWORD, and PGDATABASE. Libraries that follow libpq conventions (node-postgres, pgx, psycopg2, Django) pick up the PG* variables automatically with no configuration. If your app needs database migrations, run them on startup.
 
 Deployments use blue-green strategy for zero downtime. The old container keeps running until the new one passes health checks (60s timeout). Use get-logs to monitor build progress. Files matching .gitignore and .sotaignore are excluded from the archive.`,
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to deploy to. Use list-projects to find the ID'),
       directory: z.string().optional().describe('Absolute path to the directory to deploy. Defaults to current working directory. Must contain your app source code (package.json, requirements.txt, or Dockerfile)'),
     },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   }, async ({ project_id, directory }) => {
     const dir = directory ? resolve(directory) : process.cwd();
 

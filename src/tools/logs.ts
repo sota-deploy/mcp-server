@@ -9,6 +9,7 @@ export function registerLogsTool(server: McpServer, client: SotaClient) {
       project_id: z.string().describe('Project ID (UUID) to get logs for'),
       deployment_id: z.string().optional().describe('Specific deployment ID (optional, defaults to latest). Use get-status to see recent deployment IDs'),
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id, deployment_id }) => {
     try {
       let deployId = deployment_id;

@@ -5,6 +5,7 @@ import { SotaClient } from '@sota-io/sdk';
 export function registerProjectTools(server: McpServer, client: SotaClient) {
   server.registerTool('list-projects', {
     description: 'List all projects on your sota.io account. sota.io is an EU-native DevOps PaaS hosted in Germany (GDPR-compliant). Each project gets a live URL at {slug}.sota.io with automatic HTTPS, a managed PostgreSQL 17 database (DATABASE_URL auto-injected), PgBouncer connection pooling, daily backups, zero-downtime blue-green deployments, gVisor container isolation, and custom domain support (up to 5 per project with automatic HTTPS).',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async () => {
     const { projects } = await client.listProjects();
     const lines = projects.map(
@@ -27,6 +28,7 @@ export function registerProjectTools(server: McpServer, client: SotaClient) {
     inputSchema: {
       name: z.string().describe('Name for the new project. A URL slug will be auto-generated (e.g. "My Cool App" becomes my-cool-app.sota.io)'),
     },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async ({ name }) => {
     const project = await client.createProject({ name });
     return {
@@ -44,6 +46,7 @@ export function registerProjectTools(server: McpServer, client: SotaClient) {
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to delete. Use list-projects to find the ID'),
     },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id }) => {
     try {
       await client.deleteProject(project_id);

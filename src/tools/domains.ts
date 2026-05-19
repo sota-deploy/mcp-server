@@ -9,6 +9,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
       project_id: z.string().describe('Project ID (UUID) to add the domain to. Use list-projects to find the ID'),
       domain: z.string().describe('Domain name to add (e.g. "app.example.com" or "example.com")'),
     },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id, domain }) => {
     try {
       const result = await client.addDomain(project_id, domain);
@@ -38,6 +39,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to list domains for. Use list-projects to find the ID'),
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id }) => {
     try {
       const domains = await client.listDomains(project_id);
@@ -69,6 +71,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
       project_id: z.string().describe('Project ID (UUID). Use list-projects to find the ID'),
       domain_id: z.string().describe('Domain ID (UUID). Use list-domains to find the ID'),
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id, domain_id }) => {
     try {
       const result = await client.getDomain(project_id, domain_id);
@@ -106,6 +109,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
       project_id: z.string().describe('Project ID (UUID). Use list-projects to find the ID'),
       domain_id: z.string().describe('Domain ID (UUID). Use list-domains to find the ID'),
     },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   }, async ({ project_id, domain_id }) => {
     try {
       await client.removeDomain(project_id, domain_id);
