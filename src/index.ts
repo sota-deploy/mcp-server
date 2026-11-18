@@ -35,6 +35,7 @@ import { registerEnvTools } from './tools/env.js';
 import { registerRollbackTool } from './tools/rollback.js';
 import { registerStatusTool } from './tools/status.js';
 import { registerDomainTools } from './tools/domains.js';
+import { PACKAGE_VERSION } from './lib/version.js';
 
 async function main() {
   const apiKey = process.env.SOTA_API_KEY;
@@ -50,7 +51,7 @@ async function main() {
 
   const server = new McpServer({
     name: 'sota',
-    version: '1.3.0',
+    version: PACKAGE_VERSION,
   });
 
   // Register all tools

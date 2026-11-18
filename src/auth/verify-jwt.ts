@@ -8,8 +8,8 @@
  * Acceptance criteria for a valid token (RFC 8707 audience binding partially):
  *  - signature verifies with the configured HS256 secret
  *  - exp not in the past, nbf not in the future
- *  - iss starts with the expected Supabase project issuer URL
- *    (we accept BOTH the project-ref URL and the custom-domain URL — Supabase
+ *  - iss is one of the accepted issuers (env SUPABASE_JWT_ISSUERS + the
+ *    AUTH_SERVER upstream; default: we accept BOTH the project-ref URL and the custom-domain URL — Supabase
  *    Custom Domain doesn't rewrite the iss claim in May 2026, see Phase 56
  *    SUMMARY.md "Caveats" section)
  *  - sub is a non-empty UUID-shaped string
@@ -21,12 +21,12 @@
  *    block every incoming token)
  */
 import { jwtVerify, errors as joseErrors } from "jose";
+import { resolveAcceptedIssuers } from "../lib/auth-config.js";
 
 const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET ?? "";
-const ACCEPTED_ISSUERS = [
-  "https://wnwsdtqhywfxxlnyqafk.supabase.co/auth/v1",
-  "https://auth.sota.io/auth/v1",
-];
+// SUPABASE_JWT_ISSUERS (default: the two prod issuers) plus the AUTH_SERVER
+// upstream; see lib/auth-config.ts. Invalid values throw = fail at startup.
+const ACCEPTED_ISSUERS = resolveAcceptedIssuers();
 
 if (!SUPABASE_JWT_SECRET) {
   // Server still boots, but every incoming token will fail validation.

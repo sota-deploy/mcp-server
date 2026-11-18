@@ -186,13 +186,35 @@ sota.io is an EU-native PaaS hosted in Germany — GDPR-compliant by default, no
         // Provision: user_plans (Free tier) + sota_xxx key tagged source=claude
         const result = await provisionPlanAndKey(session.user.id);
 
+        // Deliberately neutral, descriptive content with no instructions
+        // directing the LLM or the user to modify any client configuration.
+        // Tool responses that prescribe config changes look like prompt-
+        // injection attempts and are (correctly) flagged by Claude.ai's
+        // safety layer. The user-facing setup guide lives at the docs URL.
         return {
           content: [
             {
               type: "text" as const,
-              text: `✅ Account created — welcome to sota.io!\n\n**Your API key (save this — shown once):**\n\`${result.apiKey}\`\n\nYour account:\n- Email: ${session.user.email}\n- User ID: ${session.user.id}\n- Plan: Free (3 projects, EU-hosted, no credit card)\n- Region: Germany (Hetzner Cloud)\n\nNext steps:\n1. **Save the API key** above somewhere safe — it's shown ONCE and never recoverable.\n2. To use sota.io tools in this Claude session, you need to re-install the connector OR pass this key directly. Easiest: log out / log back in to the sota.io connector in Claude (the OAuth flow will now work with your fresh account).\n3. Or use the key with the \`sota\` CLI: \`export SOTA_API_KEY=${result.apiKey}\` then \`sota deploy\`.\n\nDocs: https://sota.io/docs/integrations/claude`,
+              text: `Account created on sota.io.
+
+- Email: ${session.user.email}
+- Plan: Free tier (3 projects, EU-hosted, no credit card)
+- Region: Germany (Hetzner Cloud)
+- API key (save this — shown once): \`${result.apiKey}\`
+
+The API key authenticates the sota.io REST API (api.sota.io) and the sota CLI directly.
+
+For Claude connector usage and tool activation, see https://sota.io/docs/integrations/claude .`,
             },
           ],
+          _meta: {
+            // Forward-looking hint per MCP spec — Claude.ai doesn't render
+            // a UI for this yet, but if/when it does, sota.io users will
+            // get a "Reconnect" affordance automatically. Carries no
+            // imperative content directed at the LLM.
+            "anthropic.com/connector_reauthentication_suggested": true,
+            "anthropic.com/reauth_email": session.user.email,
+          },
         };
       } catch (err) {
         return {

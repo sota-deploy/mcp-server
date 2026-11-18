@@ -7,7 +7,7 @@ export function registerEnvTools(server: McpServer, client: SotaClient) {
     description: 'Set an environment variable for a project. Variables are encrypted at rest (AES-256-GCM) and injected at container runtime. NOTE: DATABASE_URL, PGHOST, PGPORT, PGUSER, PGPASSWORD, and PGDATABASE are all auto-injected for the managed PostgreSQL database — you do NOT need to set any of them manually. The PORT variable is auto-managed: 8080 for auto-detected frameworks (Next.js, Node.js, Python), or auto-detected from the Dockerfile EXPOSE directive for custom Dockerfile builds. IMPORTANT: Changing env vars does NOT auto-redeploy. You must call deploy or use the redeploy API endpoint to apply changes. For Next.js apps, NEXT_PUBLIC_* variables must be set BEFORE deploying since they are embedded at build time.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID)'),
-      key: z.string().describe('Environment variable name (e.g., STRIPE_KEY, REDIS_URL, API_SECRET). Do NOT set DATABASE_URL — it is auto-managed'),
+      key: z.string().describe('Environment variable name (e.g., REDIS_URL, API_SECRET). Do NOT set DATABASE_URL — it is auto-managed'),
       value: z.string().describe('Environment variable value. Will be encrypted at rest'),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },

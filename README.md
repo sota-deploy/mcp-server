@@ -147,7 +147,7 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `deploy` | Deploy an app | `project_id`, `directory?` |
+| `deploy` | Deploy an app | `project_id`, one of `files` / `git_url` / `directory` |
 | `get-logs` | Get build/runtime logs | `project_id`, `deployment_id?` |
 | `set-env` | Set environment variable | `project_id`, `key`, `value` |
 | `get-env` | List environment variables | `project_id` |
@@ -163,12 +163,18 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 
 ### `deploy`
 
-Deploy an application to sota.io. Creates a tar.gz archive of the specified directory and uploads it.
+Deploy an application to sota.io. Builds a tar.gz archive from one source and uploads it.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_id` | string | Yes | Project ID to deploy to |
+| `files` | object | No | Map of relative path to UTF-8 content (inline source) |
+| `git_url` | string | No | Public git repository to shallow-clone with the local `git` (`git_branch` optional) |
 | `directory` | string | No | Directory to deploy (defaults to current working directory) |
+
+`.git/`, `node_modules/`, `.DS_Store` and the local/secret env files `.env`, `.env.local`, `.env.*.local` and `.envrc` (any depth, any case) are never archived; set runtime secrets with `set-env`. Committed variants such as `.env.production`, `.env.development`, `.env.test` and `.env.example` are kept, because builds do not see `set-env` values (e.g. `NEXT_PUBLIC_*`).
+
+The hosted server (`https://mcp.sota.io/mcp`) accepts `files` only: it has no access to your filesystem, and it rejects `directory` and `git_url`. Use this local server or `sota deploy` for those.
 
 ```
 "Deploy my app in the current directory to sota.io"

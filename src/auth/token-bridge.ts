@@ -36,9 +36,51 @@
  * key is current.
  */
 import crypto from "node:crypto";
+import fs from "node:fs";
+import tls from "node:tls";
 import { Pool } from "pg";
+import { errorMessage, logEvent } from "../lib/log.js";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "";
+
+/**
+ * TLS settings for the pg pool from DATABASE_URL.
+ *
+ * - `sslmode=verify-full&sslrootcert=<file>` (the self-hosted platform DB,
+ *   GDPR-3): the server certificate must chain to <file> and name the URL's
+ *   host (an IP address is checked against the certificate's IP SANs; pg
+ *   itself sends no SNI for an IP, so the check is done here explicitly).
+ * - anything else (the Supabase pooler, whose CA chain pg cannot verify by
+ *   default): encrypted, not verified, as before.
+ * Both parameters are removed from the connection string: the ssl object is
+ * the only TLS input pg gets.
+ */
+export function poolTls(url: string, readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf8")): {
+  connectionString: string;
+  ssl: Record<string, unknown>;
+} {
+  const permissive = { rejectUnauthorized: false, require: true };
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return { connectionString: url.replace(/[?&]sslmode=[^&]*/i, ""), ssl: permissive };
+  }
+  const mode = u.searchParams.get("sslmode");
+  const rootcert = u.searchParams.get("sslrootcert");
+  u.searchParams.delete("sslmode");
+  u.searchParams.delete("sslrootcert");
+  const connectionString = u.toString();
+  if (mode === "verify-full" || mode === "verify-ca") {
+    if (!rootcert) throw new Error(`DATABASE_URL: sslmode=${mode} needs sslrootcert=<file>`);
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    const ssl: Record<string, unknown> = { ca: readFile(rootcert), rejectUnauthorized: true };
+    ssl.checkServerIdentity =
+      mode === "verify-full" ? (_h: string, cert: tls.PeerCertificate) => tls.checkServerIdentity(host, cert) : () => undefined;
+    return { connectionString, ssl };
+  }
+  return { connectionString, ssl: permissive };
+}
 let pool: Pool | null = null;
 
 function getPool(): Pool {
@@ -48,20 +90,16 @@ function getPool(): Pool {
         "DATABASE_URL not configured — sota-mcp cannot bridge tokens to API keys",
       );
     }
-    // Supabase pooler uses a CA chain pg can't verify by default. Strip
-    // ?sslmode= from the URL and force a permissive TLS config explicitly,
-    // matching what the rest of the sota.io stack does.
-    const cleanUrl = DATABASE_URL.replace(/[?&]sslmode=[^&]*/i, "");
+    const { connectionString, ssl } = poolTls(DATABASE_URL);
     pool = new Pool({
-      connectionString: cleanUrl,
+      connectionString,
       max: 5,
       idleTimeoutMillis: 30_000,
-      ssl: { rejectUnauthorized: false, require: true } as unknown as object,
+      ssl: ssl as unknown as object,
     });
     pool.on("error", (err) => {
       // Best-effort logging; pool keeps working across single-conn errors
-      // eslint-disable-next-line no-console
-      console.error("pg pool error:", err.message);
+      logEvent("error", { event: "pg_pool_error", error_message: errorMessage(err) });
     });
   }
   return pool;
@@ -117,7 +155,11 @@ export async function provisionPlanAndKey(
 ): Promise<BridgeResult> {
   const client = await getPool().connect();
   try {
-    // Free-tier defaults (mirrors api/internal/repository/user_plan.go defaults)
+    // Free-tier defaults (mirrors the free row of the API's plans catalog,
+    // migration 039 / model.DefaultPlans).
+    // TODO(BILL-3 PR 3 / MCP-2): this insert goes away when the bridge stops
+    // writing plans; until then a change of the free row's limits must be
+    // mirrored here.
     await client.query(
       `INSERT INTO user_plans (
          user_id, plan, max_projects, max_memory_mb, max_cpu_millicores,
