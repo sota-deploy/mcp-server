@@ -1,5 +1,5 @@
 /**
- * oauth-proxy.ts — Phase 65/Pattern-A precursor. Transparent reverse proxy
+ * oauth-proxy.ts — transparent reverse proxy
  * in front of Supabase OAuth Server that strips `openid` from the scope
  * parameter on /authorize requests, working around the Supabase OIDC bug
  * (HTTP 500 "Error generating ID token" — error_id 019e41f7-…).

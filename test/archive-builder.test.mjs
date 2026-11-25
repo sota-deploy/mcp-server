@@ -113,7 +113,7 @@ test('archiveFromDirectory fails on missing path', () => {
   );
 });
 
-// ── MCP-1: local/secret .env files never land in an archive ───────────────
+// ── Local/secret .env files never land in an archive ───────────────
 
 const { isExcludedName, collectEntries } = builder;
 

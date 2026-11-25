@@ -11,7 +11,7 @@
  * via Claude tool calls.
  *
  * Why this is OK from a security perspective:
- *  - Disposable-email blocking (Phase pre-62) filters obvious abuse
+ *  - Disposable-email blocking filters obvious abuse
  *  - Supabase has its own per-email OTP rate limits (default 30/h)
  *  - The tool ONLY hits Supabase's public OTP endpoints + our own DB
  *    via the bridge — no sota-api access without authentication

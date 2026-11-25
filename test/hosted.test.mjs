@@ -1,4 +1,4 @@
-// MCP-1: hosted (mcp.sota.io) vs local (stdio) behaviour.
+// Hosted (mcp.sota.io) vs local (stdio) behaviour.
 // Run with: npm test (builds dist/ first).
 //
 // Covers: the deploy schema difference, the runtime guard against
@@ -23,7 +23,7 @@ const { SignJWT } = await import('jose');
 const { registerDeployTool } = await import('../dist/tools/deploy.js');
 const { hostedDeployRejection } = await import('../dist/lib/hosted-guard.js');
 const { formatLogLine, redactEmails, errorMessage } = await import('../dist/lib/log.js');
-// No build args in this process: /health must then say "unknown" (DEVX-4).
+// No build args in this process: /health must then say "unknown".
 delete process.env.GIT_SHA;
 delete process.env.BUILD_TIME;
 const { PACKAGE_VERSION } = await import('../dist/lib/version.js');

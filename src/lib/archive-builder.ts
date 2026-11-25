@@ -23,7 +23,7 @@
  *     of every archive, whatever the mode.
  *   - directory deploys honour the root .sotaignore (or, without one, the
  *     .gitignore, keeping .env.production and .env.example); git_url
- *     deploys honour only a .sotaignore (lib/ignore.ts, 261125-mcg).
+ *     deploys honour only a .sotaignore (lib/ignore.ts).
  *   - git and tar run via execFile (no shell).
  *   - Inline file paths are normalised + rejected if they contain ".." or
  *     start with "/" or contain NUL.

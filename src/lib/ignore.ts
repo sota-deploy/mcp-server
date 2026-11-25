@@ -1,7 +1,6 @@
 /**
- * .sotaignore / .gitignore for directory and git deploys (quick task
- * 261125-mcg), with the CLI's pattern rules (cli/internal/archive/archive.go
- * loadIgnorePatterns + shouldIgnore). Blank lines and # comments are skipped.
+ * .sotaignore / .gitignore for directory and git deploys, with the CLI's
+ * pattern rules (cli/internal/archive/archive.go loadIgnorePatterns + shouldIgnore). Blank lines and # comments are skipped.
  * A pattern matches a relative path when
  *   - it ends in "/" and names that directory or a path below it,
  *   - it equals the path or its base name,

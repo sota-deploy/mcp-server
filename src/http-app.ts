@@ -6,21 +6,15 @@
  * Claude.ai. The entry point is http.ts; this module builds the Express app
  * so tests can run it on an ephemeral port.
  *
- * Hosted differences from stdio (MCP-1): `deploy` accepts inline `files`
+ * Hosted differences from stdio: `deploy` accepts inline `files`
  * only (no `directory`, no `git_url`), enforced by the tool schema, by
  * hostedDeployRejection() before any tool runs and by the tool itself. Logs
  * carry user ids, never emails.
  *
- * Phase 57-01 (this file): scaffold + transport + RFC 9728 metadata.
- *   Auth is currently a pass-through Bearer API key — clients send their
- *   existing sota_xxx key as `Authorization: Bearer <key>` and it gets
- *   forwarded to sota-api. No OAuth validation yet.
- *
- * Phase 57-02 (next): OAuth 2.1 + JWT validation against Supabase JWKS,
- *   token-to-API-key bridge with `source=claude` audit tagging.
- *
- * Phase 57-03 (next): `create_account` tool for net-new user signup from
- *   inside Claude + plan-based capability gating.
+ * Auth: a sota_xxx API key as `Authorization: Bearer <key>` is forwarded to
+ * sota-api; an OAuth 2.1 access token (JWT) is verified and mapped to a
+ * per-user key tagged `source=claude` (auth/token-bridge.ts). RFC 9728
+ * protected-resource metadata is served for OAuth discovery.
  */
 
 import crypto from 'node:crypto';
@@ -57,7 +51,7 @@ const UNAUTHENTICATED_TOOLS = new Set(['create_account']);
 // Tools verfügbar" otherwise — a dead-end state for the user). The
 // per-tool-call 401 + WWW-Authenticate is the actual OAuth trigger.
 // prompts/list and prompts/get serve only the static Enterprise checklist
-// (no API call, no account data), so they need no token either (261125-mcg).
+// (no API call, no account data), so they need no token either.
 const UNAUTHENTICATED_METHODS = new Set([
   'initialize',
   'notifications/initialized',
@@ -91,7 +85,7 @@ app.use(express.json({ limit: '4mb' }));
 // token endpoint expects application/x-www-form-urlencoded bodies.
 app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 
-// Phase-65/Pattern-A precursor: transparent reverse proxy in front of
+// Transparent reverse proxy in front of
 // Supabase OAuth Server that strips the `openid` scope before forwarding.
 // Activated regardless of metadata-advertised scopes — see oauth-proxy.ts.
 mountOAuthProxy(app, PUBLIC_ORIGIN);
@@ -104,7 +98,7 @@ app.get('/health', (_req: Request, res: Response) => {
     ok: true,
     service: 'sota-mcp',
     version: VERSION,
-    // DEVX-4: which commit this image was built from ("unknown" without the
+    // Which commit this image was built from ("unknown" without the
     // GIT_SHA/BUILD_TIME build args). `version` stays the package version.
     commit: GIT_SHA,
     built_at: BUILD_TIME,
@@ -160,7 +154,7 @@ function unauthorized(res: Response, reason: string, detail?: string) {
 }
 
 async function handleMcpRequest(req: Request, res: Response) {
-  // ── MCP-1: the hosted deploy tool never takes directory / git_url ──
+  // ── The hosted deploy tool never takes directory / git_url ──
   // Checked before auth and before the SDK parses the call, so no tool code
   // runs for such a request whatever the token or the SDK's argument
   // handling. JSON-RPC "invalid params" in an HTTP 400.
@@ -175,7 +169,7 @@ async function handleMcpRequest(req: Request, res: Response) {
     return;
   }
 
-  // ── 57-02 Auth: OAuth JWT validation + token-to-key bridge ──
+  // ── Auth: OAuth JWT validation + token-to-key bridge ──
   // Accept Bearer <jwt> (Claude/MCP path) OR Bearer <sota_xxx> (testing/CLI path).
   // sota_-prefixed tokens skip JWT validation and pass through directly.
   const authHeader = req.headers.authorization ?? '';

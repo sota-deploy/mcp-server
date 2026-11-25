@@ -1,9 +1,9 @@
 /**
- * GET /v1/account (quick task 261125-mcg): plan limits, usage and the
+ * GET /v1/account: plan limits, usage and the
  * non-sensitive Enterprise facts of the signed-in account. Readable with an
  * API key and with the hosted connector's key. Called directly (not through
- * @sota-io/sdk) so this release does not depend on an unpublished SDK; 105-01
- * moves it into SotaClient.getAccount().
+ * @sota-io/sdk) so this release does not depend on an unpublished SDK;
+ * a later SDK release moves it into SotaClient.getAccount().
  */
 
 export interface AccountPlan {

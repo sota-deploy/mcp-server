@@ -1,21 +1,17 @@
 /**
  * JWT validation for incoming Claude bearer tokens.
  *
- * Supabase OAuth Server (Phase 56) issues access tokens via HS256 — its JWKS
- * endpoint is intentionally empty in May 2026 because tokens are signed with
- * the project's shared JWT secret. We validate with that same secret.
+ * The Supabase Auth (GoTrue) OAuth server issues access tokens via HS256, signed
+ * with the shared JWT secret. We validate with that same secret.
  *
  * Acceptance criteria for a valid token (RFC 8707 audience binding partially):
  *  - signature verifies with the configured HS256 secret
  *  - exp not in the past, nbf not in the future
  *  - iss is one of the accepted issuers (env SUPABASE_JWT_ISSUERS + the
- *    AUTH_SERVER upstream; default: we accept BOTH the project-ref URL and the custom-domain URL — Supabase
- *    Custom Domain doesn't rewrite the iss claim in May 2026, see Phase 56
- *    SUMMARY.md "Caveats" section)
+ *    AUTH_SERVER upstream; default: https://auth.sota.io/auth/v1)
  *  - sub is a non-empty UUID-shaped string
  *
- * NOT enforced in 57-02 (deferred to Phase 61 Pattern A migration where
- * Anthropic-Held Credentials let us mint mcp.sota.io-audience tokens):
+ * NOT enforced (until tokens with an mcp.sota.io audience can be minted):
  *  - strict aud == "https://mcp.sota.io" check (Supabase tokens carry
  *    aud="authenticated", not our resource URL; rejecting on that would
  *    block every incoming token)

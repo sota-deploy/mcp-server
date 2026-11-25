@@ -7,7 +7,7 @@
  * cache the mapping in-memory + persisted in DB.
  *
  * Benefits:
- *   - One revocation surface for Marx: "delete all source=claude keys for user X"
+ *   - One revocation surface for the operator: "delete all source=claude keys for user X"
  *     immediately cuts off the Claude integration without touching the user's
  *     CLI/dashboard keys
  *   - Audit log can separate Claude-originated tool calls from CLI tool calls
@@ -46,8 +46,8 @@ const DATABASE_URL = process.env.DATABASE_URL ?? "";
 /**
  * TLS settings for the pg pool from DATABASE_URL.
  *
- * - `sslmode=verify-full&sslrootcert=<file>` (the self-hosted platform DB,
- *   GDPR-3): the server certificate must chain to <file> and name the URL's
+ * - `sslmode=verify-full&sslrootcert=<file>` (the self-hosted platform
+ *   DB): the server certificate must chain to <file> and name the URL's
  *   host (an IP address is checked against the certificate's IP SANs; pg
  *   itself sends no SNI for an IP, so the check is done here explicitly).
  * - anything else (the Supabase pooler, whose CA chain pg cannot verify by
@@ -157,7 +157,7 @@ export async function provisionPlanAndKey(
   try {
     // Free-tier defaults (mirrors the free row of the API's plans catalog,
     // migration 039 / model.DefaultPlans).
-    // TODO(BILL-3 PR 3 / MCP-2): this insert goes away when the bridge stops
+    // TODO: this insert goes away when the bridge stops
     // writing plans; until then a change of the free row's limits must be
     // mirrored here.
     await client.query(

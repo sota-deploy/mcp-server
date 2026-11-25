@@ -25,7 +25,7 @@ export function readPackageVersion(): string {
 export const PACKAGE_VERSION = readPackageVersion();
 
 /**
- * Commit and build time of the hosted image (DEVX-4). The Dockerfile turns
+ * Commit and build time of the hosted image. The Dockerfile turns
  * the GIT_SHA and BUILD_TIME build args into environment variables of the
  * runtime stage. Anything built without them (npm package, local checkout,
  * a plain `docker compose build`) reports "unknown".

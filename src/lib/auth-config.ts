@@ -1,7 +1,7 @@
 /**
- * auth-config.ts — env-driven auth settings of the hosted MCP server (GDPR-3).
+ * auth-config.ts — env-driven auth settings of the hosted MCP server.
  *
- * Two values used to be hard-coded for prod (GDPR-3 ADR §11):
+ * Two values used to be hard-coded for prod:
  *   - the OAuth proxy upstream (oauth-proxy.ts)
  *   - the accepted JWT issuers (auth/verify-jwt.ts)
  *
@@ -11,7 +11,7 @@
  *                         Unset/blank → https://auth.sota.io/auth/v1 (prod).
  *   SUPABASE_JWT_ISSUERS  comma-separated accepted iss values, exact match.
  *                         Same name and rules as the Go API (config.go
- *                         JWTIssuers). Unset/blank → today's two prod issuers.
+ *                         JWTIssuers). Unset/blank → the prod issuer.
  *
  * The upstream is always accepted as an issuer as well: GoTrue writes its own
  * public URL into iss, so a dev or self-hosted setup only has to set
@@ -24,7 +24,6 @@
 export const DEFAULT_AUTH_UPSTREAM = 'https://auth.sota.io/auth/v1';
 
 export const DEFAULT_ACCEPTED_ISSUERS: readonly string[] = [
-  'https://wnwsdtqhywfxxlnyqafk.supabase.co/auth/v1',
   'https://auth.sota.io/auth/v1',
 ];
 

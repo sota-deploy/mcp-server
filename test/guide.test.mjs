@@ -1,4 +1,4 @@
-// Quick task 261125-mcg: the account/contract guidance an agent gets over MCP.
+// The account/contract guidance an agent gets over MCP.
 // Run with: npm test (builds dist/ first).
 
 import test from 'node:test';

@@ -1,6 +1,6 @@
 /**
  * The public URL of a project, as the API returns it in `project.url`
- * (ENT-MVP WP2). An Enterprise app lives at `https://<app>.<customer>.sota.io`
+ * An Enterprise app lives at `https://<app>.<customer>.sota.io`
  * and has no `<slug>.sota.io` host, so tools show this value instead of
  * composing one from the slug.
  *

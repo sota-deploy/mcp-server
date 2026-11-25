@@ -1,4 +1,4 @@
-// GDPR-3: env-driven OAuth upstream + accepted JWT issuers.
+// Env-driven OAuth upstream + accepted JWT issuers.
 // Run with: npm test (builds dist/ first).
 
 import test from 'node:test';
@@ -11,10 +11,7 @@ const {
   resolveAcceptedIssuers,
 } = await import('../dist/lib/auth-config.js');
 
-const PROD_DEFAULT_ISSUERS = [
-  'https://wnwsdtqhywfxxlnyqafk.supabase.co/auth/v1',
-  'https://auth.sota.io/auth/v1',
-];
+const PROD_DEFAULT_ISSUERS = ['https://auth.sota.io/auth/v1'];
 
 test('upstream: unset or blank keeps the prod value', () => {
   assert.equal(DEFAULT_AUTH_UPSTREAM, 'https://auth.sota.io/auth/v1');
@@ -24,8 +21,8 @@ test('upstream: unset or blank keeps the prod value', () => {
 
 test('upstream: env value is used, trailing slashes trimmed, host lower-cased', () => {
   assert.equal(
-    resolveAuthUpstream({ AUTH_SERVER: 'https://zovymbyrlmwghznwctyc.supabase.co/auth/v1' }),
-    'https://zovymbyrlmwghznwctyc.supabase.co/auth/v1',
+    resolveAuthUpstream({ AUTH_SERVER: 'https://dev-project.example.supabase.co/auth/v1' }),
+    'https://dev-project.example.supabase.co/auth/v1',
   );
   assert.equal(
     resolveAuthUpstream({ AUTH_SERVER: ' https://Auth.Example.com/auth/v1/// ' }),
@@ -49,7 +46,7 @@ test('upstream: invalid values fail fast', () => {
   }
 });
 
-test('issuers: unset or blank keeps the two prod values (prod upstream already included)', () => {
+test('issuers: unset or blank keeps the prod value (prod upstream already included)', () => {
   assert.deepEqual([...DEFAULT_ACCEPTED_ISSUERS], PROD_DEFAULT_ISSUERS);
   assert.deepEqual(resolveAcceptedIssuers({}), PROD_DEFAULT_ISSUERS);
   assert.deepEqual(resolveAcceptedIssuers({ SUPABASE_JWT_ISSUERS: ' , ' }), PROD_DEFAULT_ISSUERS);
@@ -60,7 +57,7 @@ test('issuers: unset or blank keeps the two prod values (prod upstream already i
 });
 
 test('issuers: comma-separated env list, upstream appended once', () => {
-  const dev = 'https://zovymbyrlmwghznwctyc.supabase.co/auth/v1';
+  const dev = 'https://dev-project.example.supabase.co/auth/v1';
   assert.deepEqual(
     resolveAcceptedIssuers({ SUPABASE_JWT_ISSUERS: ` ${dev} `, AUTH_SERVER: dev }),
     [dev],

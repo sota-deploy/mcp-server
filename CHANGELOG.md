@@ -1,5 +1,13 @@
 # Changelog — @sota-io/mcp
 
+## 1.7.1 — unreleased
+
+- **`npx -y @sota-io/mcp` starts the server.** npx runs the executable named after the unscoped package name (`mcp`), and no published version (1.0.0 to 1.7.0) had one, so the documented command stopped with "could not determine executable to run". The package now has a bin entry `mcp` that runs the stdio server (same file as `sota-mcp`); `sota-mcp` and `sota-mcp-http` stay. With 1.0.0 to 1.7.0 use the long form `npx -y -p @sota-io/mcp@<version> sota-mcp`.
+- A global install (`npm install -g @sota-io/mcp`) now also puts a command called `mcp` on the PATH. It can shadow another tool named `mcp`; `sota-mcp` remains the unambiguous name.
+- A test fails when no bin entry matches the unscoped package name, or when a bin target is missing its shebang.
+- Hosted server: the default list of accepted JWT issuers (used only when `SUPABASE_JWT_ISSUERS` is unset) is now `https://auth.sota.io/auth/v1` alone; the issuer of the former hosted auth project is no longer accepted by default.
+- Housekeeping in the published sources: internal planning references, a private network address and a former test project id removed from comments and tests.
+
 ## 1.7.0 — 2026-11-25
 
 - New tool `get-account` (read-only): plan limits, whether the account is a sota Enterprise account (company label, app address `https://<app>.<label>.sota.io`, app count, sign-in connection status, link to Users & access) and the build contract every app must follow. Needs sota-api with `GET /v1/account`; against an older API it returns the contract without account facts.

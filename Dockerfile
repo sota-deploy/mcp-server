@@ -1,5 +1,4 @@
 # sota-mcp — HTTP Streamable MCP server for mcp.sota.io
-# Phase 57-01: scaffold + transport + RFC 9728 metadata. OAuth comes in 57-02.
 
 FROM node:22-alpine AS builder
 
@@ -43,7 +42,7 @@ RUN node -e "import('./dist/lib/archive-builder.js').then(m => { const b = m.arc
 
 EXPOSE 8080
 
-# Commit and build time of this image (DEVX-4), reported by GET /health.
+# Commit and build time of this image, reported by GET /health.
 # Declared last on purpose: the build time differs on every deploy, and
 # anything after these lines is rebuilt each time. Both default to "unknown":
 # a build without the args works as before.

@@ -1,4 +1,4 @@
-// ENT-MVP WP2: tools show the project URL the API returns.
+// Tools show the project URL the API returns.
 // Run with: npm test (builds dist/ first).
 
 import test from 'node:test';

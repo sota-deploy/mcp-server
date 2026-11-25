@@ -1,6 +1,6 @@
 /**
  * The build and identity contract an agent must follow on sota.io, in one
- * place (quick task 261125-mcg). The server instructions, the tool
+ * place. The server instructions, the tool
  * descriptions, the get-account tool, the enterprise-app-checklist prompt and
  * the docs page web/src/app/docs/enterprise/build-with-ai/page.mdx all state
  * it with these exact lines; test/guide.test.mjs fails when the docs page and

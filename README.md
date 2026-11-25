@@ -47,12 +47,24 @@ See [https://sota.io/docs/integrations/claude](https://sota.io/docs/integrations
 npx -y @sota-io/mcp
 ```
 
+This short form needs version 1.7.1 or later. Versions 1.0.0 to 1.7.0 have no
+executable named after the package, so npx stops with "could not determine
+executable to run"; pin one of them with the long form:
+
+```bash
+npx -y -p @sota-io/mcp@1.7.0 sota-mcp
+```
+
 Or install globally:
 
 ```bash
 npm install -g @sota-io/mcp
 sota-mcp
 ```
+
+A global install puts three commands on your PATH: `sota-mcp` (stdio),
+`sota-mcp-http` (Streamable HTTP) and, since 1.7.1, `mcp` (the same stdio
+server, the name `npx -y @sota-io/mcp` runs).
 
 ## Configuration
 
