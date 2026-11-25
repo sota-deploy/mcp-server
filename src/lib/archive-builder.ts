@@ -21,6 +21,9 @@
  *   - .git, node_modules, .DS_Store and the local/secret env files (.env,
  *     .env.local, .env.*.local, .envrc; any depth, any case) are left out
  *     of every archive, whatever the mode.
+ *   - directory deploys honour the root .sotaignore (or, without one, the
+ *     .gitignore, keeping .env.production and .env.example); git_url
+ *     deploys honour only a .sotaignore (lib/ignore.ts, 261125-mcg).
  *   - git and tar run via execFile (no shell).
  *   - Inline file paths are normalised + rejected if they contain ".." or
  *     start with "/" or contain NUL.
@@ -41,6 +44,7 @@ import {
   statSync,
 } from 'fs';
 import { tmpdir } from 'os';
+import { type IgnoreRules, NO_RULES, ignoredBy, loadIgnoreRules } from './ignore.js';
 import { dirname, join, resolve, sep } from 'path';
 
 /**
@@ -53,8 +57,15 @@ import { dirname, join, resolve, sep } from 'path';
  */
 const LOCAL_ENV_FILE = /^\.env(?:(?:\.[^/]+)?\.local|rc)?$/i;
 
+const ALWAYS_EXCLUDED = new Set(['.git', 'node_modules', '.DS_Store', '.sota.json', '__pycache__', '.venv']);
+
 export function isExcludedName(name: string): boolean {
-  if (name === '.git' || name === 'node_modules' || name === '.DS_Store') return true;
+  // Same always-excluded names as the CLI (cli/internal/archive defaultIgnores)
+  // where that is safe; the CLI's vendor/ and .env.* are deliberately not
+  // copied: vendored dependencies are needed for the build, and committed
+  // .env.production / .env.example carry public build-time values.
+  if (ALWAYS_EXCLUDED.has(name)) return true;
+  if (name.toLowerCase().endsWith('.log')) return true;
   return LOCAL_ENV_FILE.test(name);
 }
 
@@ -174,7 +185,10 @@ export function archiveFromGitUrl(gitUrl: string, gitBranch?: string): Buffer {
     }
 
     // Hard size cap: refuse repos that ballooned past MAX_CLONE_BYTES.
-    const sizeBytes = collectEntries(workdir).totalBytes;
+    // A clone holds only tracked files: .gitignore must not drop tracked
+    // ones (e.g. committed build output), so only a .sotaignore applies.
+    const rules = loadIgnoreRules(workdir, { gitignoreFallback: false });
+    const sizeBytes = collectEntries(workdir, rules).totalBytes;
     if (sizeBytes > MAX_CLONE_BYTES) {
       throw new ArchiveBuilderError(
         'clone_too_large',
@@ -182,7 +196,7 @@ export function archiveFromGitUrl(gitUrl: string, gitBranch?: string): Buffer {
       );
     }
 
-    return tarGzWorkdir(workdir);
+    return tarGzWorkdir(workdir, rules);
   } finally {
     rmSync(workdir, { recursive: true, force: true });
   }
@@ -195,6 +209,19 @@ export function archiveFromGitUrl(gitUrl: string, gitBranch?: string): Buffer {
  * single code path for archive construction.
  */
 export function archiveFromDirectory(dir: string): Buffer {
+  return archiveDirectoryWithReport(dir).archive;
+}
+
+/** What a directory deploy packed (for the tool result). */
+export interface DirectoryArchive {
+  archive: Buffer;
+  /** Number of regular files in the archive. */
+  files: number;
+  /** ".sotaignore", ".gitignore" or null when neither was found. */
+  ignoreFile: string | null;
+}
+
+export function archiveDirectoryWithReport(dir: string): DirectoryArchive {
   const abs = resolve(dir);
   let isDir = false;
   try {
@@ -205,7 +232,9 @@ export function archiveFromDirectory(dir: string): Buffer {
   if (!isDir) {
     throw new ArchiveBuilderError('not_a_directory', `Not a directory: ${abs}`);
   }
-  return tarGzWorkdir(abs);
+  const rules = loadIgnoreRules(abs, { gitignoreFallback: true });
+  const { files } = collectEntries(abs, rules);
+  return { archive: tarGzWorkdir(abs, rules), files, ignoreFile: rules.source };
 }
 
 /**
@@ -214,9 +243,13 @@ export function archiveFromDirectory(dir: string): Buffer {
  * skipped at every depth, and excluded directories are not descended into.
  * Symlinks are archived as links and never followed.
  */
-export function collectEntries(root: string): { entries: string[]; totalBytes: number } {
+export function collectEntries(
+  root: string,
+  rules: IgnoreRules = NO_RULES,
+): { entries: string[]; totalBytes: number; files: number } {
   const entries: string[] = [];
   let totalBytes = 0;
+  let files = 0;
   const walk = (absDir: string, relDir: string) => {
     const dirents = readdirSync(absDir, { withFileTypes: true }).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -225,20 +258,22 @@ export function collectEntries(root: string): { entries: string[]; totalBytes: n
       if (isExcludedName(d.name)) continue;
       const abs = join(absDir, d.name);
       const rel = `${relDir}/${d.name}`;
+      if (ignoredBy(rules, rel.slice(2), d.isDirectory())) continue;
       entries.push(rel);
       if (d.isDirectory()) {
         walk(abs, rel);
       } else if (d.isFile()) {
         totalBytes += lstatSync(abs).size;
+        files++;
       }
     }
   };
   walk(root, '.');
-  return { entries, totalBytes };
+  return { entries, totalBytes, files };
 }
 
-function tarGzWorkdir(workdir: string): Buffer {
-  const { entries } = collectEntries(workdir);
+function tarGzWorkdir(workdir: string, rules: IgnoreRules = NO_RULES): Buffer {
+  const { entries } = collectEntries(workdir, rules);
   // The explicit NUL-separated file list (instead of tar --exclude patterns)
   // makes the exclusions identical on GNU tar and bsdtar (macOS, Windows)
   // and case-insensitive for the .env names.

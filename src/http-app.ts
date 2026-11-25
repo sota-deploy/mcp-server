@@ -43,6 +43,9 @@ import { mountOAuthProxy } from './oauth-proxy.js';
 import { hostedDeployRejection } from './lib/hosted-guard.js';
 import { errorMessage, logEvent } from './lib/log.js';
 import { BUILD_TIME, GIT_SHA, PACKAGE_VERSION } from './lib/version.js';
+import { registerAccountTool, registerChecklistPrompt } from './tools/account.js';
+import { accountReader } from './lib/account.js';
+import { SERVER_INSTRUCTIONS } from './lib/guide.js';
 
 // Tools that may be invoked WITHOUT authentication. Currently only
 // create_account — net-new users obviously don't have an API key yet.
@@ -53,7 +56,15 @@ const UNAUTHENTICATED_TOOLS = new Set(['create_account']);
 // connector UI can render the tool catalogue (it shows "Konnektor hat keine
 // Tools verfügbar" otherwise — a dead-end state for the user). The
 // per-tool-call 401 + WWW-Authenticate is the actual OAuth trigger.
-const UNAUTHENTICATED_METHODS = new Set(['initialize', 'notifications/initialized', 'tools/list']);
+// prompts/list and prompts/get serve only the static Enterprise checklist
+// (no API call, no account data), so they need no token either (261125-mcg).
+const UNAUTHENTICATED_METHODS = new Set([
+  'initialize',
+  'notifications/initialized',
+  'tools/list',
+  'prompts/list',
+  'prompts/get',
+]);
 
 function isUnauthenticatedAllowed(body: unknown): boolean {
   if (!body || typeof body !== 'object') return false;
@@ -235,11 +246,14 @@ async function handleMcpRequest(req: Request, res: Response) {
   }
 
   // Build a fresh MCP server per request (stateless mode).
-  const server = new McpServer({
-    name: 'sota',
-    version: VERSION,
-    title: 'sota.io',
-  });
+  const server = new McpServer(
+    {
+      name: 'sota',
+      version: VERSION,
+      title: 'sota.io',
+    },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   // ALL tools are always registered so they show up in tools/list, regardless
   // of whether the current request is authenticated. Why: when a client like
@@ -260,8 +274,11 @@ async function handleMcpRequest(req: Request, res: Response) {
   // for non-create_account before reaching the handler.
   registerCreateAccountTool(server);
   const client = new SotaClient({ apiKey: apiKey || 'anonymous', baseUrl: SOTA_API_URL });
-  registerProjectTools(server, client);
-  registerDeployTool(server, client, { hosted: true });
+  const readAccount = accountReader(SOTA_API_URL, apiKey || 'anonymous');
+  registerAccountTool(server, readAccount);
+  registerChecklistPrompt(server);
+  registerProjectTools(server, client, { readAccount });
+  registerDeployTool(server, client, { hosted: true, readAccount });
   registerLogsTool(server, client);
   registerEnvTools(server, client);
   registerRollbackTool(server, client);

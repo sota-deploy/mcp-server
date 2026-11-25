@@ -35,6 +35,9 @@ import { registerEnvTools } from './tools/env.js';
 import { registerRollbackTool } from './tools/rollback.js';
 import { registerStatusTool } from './tools/status.js';
 import { registerDomainTools } from './tools/domains.js';
+import { registerAccountTool, registerChecklistPrompt } from './tools/account.js';
+import { accountReader } from './lib/account.js';
+import { SERVER_INSTRUCTIONS } from './lib/guide.js';
 import { PACKAGE_VERSION } from './lib/version.js';
 
 async function main() {
@@ -49,14 +52,21 @@ async function main() {
 
   const client = new SotaClient({ apiKey, baseUrl: apiURL });
 
-  const server = new McpServer({
-    name: 'sota',
-    version: PACKAGE_VERSION,
-  });
+  const readAccount = accountReader(apiURL, apiKey);
+
+  const server = new McpServer(
+    {
+      name: 'sota',
+      version: PACKAGE_VERSION,
+    },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   // Register all tools
-  registerProjectTools(server, client);
-  registerDeployTool(server, client);
+  registerAccountTool(server, readAccount);
+  registerChecklistPrompt(server);
+  registerProjectTools(server, client, { readAccount });
+  registerDeployTool(server, client, { readAccount });
   registerLogsTool(server, client);
   registerEnvTools(server, client);
   registerRollbackTool(server, client);

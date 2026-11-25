@@ -29,8 +29,8 @@ sota.io is an EU-native DevOps PaaS. Deploy any web app and get a live URL at `{
 
 ## Database — How It Works
 
-1. Create a project → PostgreSQL 17 database is auto-provisioned.
-2. Deploy your app → `DATABASE_URL` is injected into the container.
+1. Create a project.
+2. Deploy your app → the first deploy creates the PostgreSQL 17 database and injects `DATABASE_URL` into the container.
 3. Your app reads `DATABASE_URL` from the environment — that's it.
 
 You do NOT need to:
@@ -57,7 +57,9 @@ Full migration guide: https://sota.io/docs/guides/postgresql
 - `DATABASE_URL` — PostgreSQL connection string (auto-injected).
 - Custom vars set via `set-env` tool are encrypted at rest (AES-256-GCM).
 - Changing env vars does NOT auto-redeploy. Deploy again to apply.
-- Next.js `NEXT_PUBLIC_*` vars: set BEFORE deploying (build-time embedding).
+- `set-env` values are runtime only. Next.js `NEXT_PUBLIC_*` (build-time) values belong in a committed file such as `.env.production`.
+- Secrets never go into an uploaded file. A folder deploy uses `.sotaignore` (or the `.gitignore`, which never drops `.env.production` or `.env.example`); `.env`, `.env.local`, `.env.*.local` and `.envrc` are always left out.
+- Enterprise: apps on the same server can call each other without the sign-in and can forge identity headers; protect app-to-app calls with your own shared secret.
 
 ## Custom Domains
 
@@ -74,9 +76,22 @@ Manage via API:
 - `GET /v1/projects/:id/domains/:domainId` — Get domain with DNS instructions
 - `DELETE /v1/projects/:id/domains/:domainId` — Remove domain
 
+## sota Enterprise accounts
+
+Call the `get-account` tool first. On a sota Enterprise account (company label `<label>`):
+
+- The app lives at `https://<app>.<label>.sota.io` behind the company's Microsoft 365 sign-in (sota Access). Never build a login.
+- Read `X-Sota-Access-User-Id`, `X-Sota-Access-Email` (lower-case it) and `X-Sota-Access-Name`; no role in the headers.
+- Fail closed (401) without `X-Sota-Access-User-Id`, EXCEPT `GET /health` (200) and `GET /` (2xx/3xx, no data): the health gate and the edge check call them without identity.
+- Sign out: `/.sota/access/logout`. No public paths yet (no webhooks from outside).
+- After a deploy nobody can open the app until the owner approves people and ticks the app under Users & access in the dashboard. MCP cannot do that: tell the human.
+
+Full checklist: the `enterprise-app-checklist` prompt or https://sota.io/docs/enterprise/build-with-ai
+
 ## Deployment Workflow for AI Agents
 
 ```
+0. get-account                    → Enterprise or not, limits, contract
 1. create-project "My App"        → get project_id
 2. (write your app code)          → must listen on PORT
 3. deploy project_id ./my-app     → uploads & builds
@@ -120,7 +135,7 @@ module.exports = { output: 'standalone' }
 | Build fails | Check `get-logs` for missing dependencies or build errors. |
 | App not accessible | Use `get-status` — must show "running". Check health check (60s timeout). |
 | Env vars not applied | Changing env vars requires redeployment. Call `deploy` again. |
-| Next.js NEXT_PUBLIC_* empty | Set these BEFORE deploying (they're embedded at build time). |
+| Next.js NEXT_PUBLIC_* empty | `set-env` values are not visible at build time; put them in a committed `.env.production`. |
 | Migrations not running | Start script must chain migration before server. Example: `"start": "npx prisma db push && node server.js"` |
 | `prepared statement already exists` | PgBouncer conflict — add `?pgbouncer=true` to DATABASE_URL in Prisma schema. |
 

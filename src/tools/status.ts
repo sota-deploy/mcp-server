@@ -4,7 +4,7 @@ import { SotaClient } from '@sota-io/sdk';
 
 export function registerStatusTool(server: McpServer, client: SotaClient) {
   server.registerTool('get-status', {
-    description: 'Get the current deployment status for a project, including the live URL (https://{slug}.sota.io), detected framework, and recent deployment history. Deployment statuses: pending (queued), building (build in progress), built (image ready), deploying (starting container + health checks), running (live and healthy), failed (build or health check error), stopped (replaced by newer deployment). Use this to verify a deployment succeeded after calling deploy.',
+    description: 'Get the current deployment status for a project, including the live host (the project URL from list-projects: https://{slug}.sota.io, or https://{app}.{label}.sota.io on a sota Enterprise account), detected framework, the reason of a failed deployment, and recent deployment history. Deployment statuses: pending (queued), building (build in progress), built (image ready), deploying (starting container + health checks), running (live and healthy), failed (build or health check error), stopped (replaced by newer deployment). Use this to verify a deployment succeeded after calling deploy.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to check status for. Use list-projects to find the ID'),
     },
@@ -36,8 +36,15 @@ export function registerStatusTool(server: McpServer, client: SotaClient) {
       if (latest.framework) {
         lines.push(`  Framework: ${latest.framework}`);
       }
-      if (latest.error) {
-        lines.push(`  Error: ${latest.error}`);
+      // The API sends error_message; older SDK types call it error.
+      const failure = (latest as { error_message?: string }).error_message ?? latest.error;
+      if (failure) {
+        lines.push(`  Error: ${failure}`);
+      }
+      if (latest.status === 'failed' && failure && /health check/i.test(failure)) {
+        lines.push(
+          '  Hint: the app did not answer GET /health (or GET / when /health is 404) with 2xx/3xx within 60 s. It must listen on 0.0.0.0:$PORT and answer these paths WITHOUT identity headers (sota Enterprise: do not return 401 there). The previous version, if any, keeps running.',
+        );
       }
 
       if (deployments.length > 1) {

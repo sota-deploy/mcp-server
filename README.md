@@ -147,8 +147,9 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
+| `get-account` | Plan limits, Enterprise facts and the build contract (call first) | *(none)* |
 | `deploy` | Deploy an app | `project_id`, one of `files` / `git_url` / `directory` |
-| `get-logs` | Get build/runtime logs | `project_id`, `deployment_id?` |
+| `get-logs` | Get the build and deploy log | `project_id`, `deployment_id?` |
 | `set-env` | Set environment variable | `project_id`, `key`, `value` |
 | `get-env` | List environment variables | `project_id` |
 | `rollback` | Rollback to previous deployment | `project_id` |
@@ -182,7 +183,7 @@ The hosted server (`https://mcp.sota.io/mcp`) accepts `files` only: it has no ac
 
 ### `get-logs`
 
-Get build and runtime logs for a deployment. If no deployment_id is provided, returns logs for the latest deployment.
+Get the build and deploy log of a deployment (no runtime logs). If no deployment_id is provided, returns logs for the latest deployment.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

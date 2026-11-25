@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { SotaClient } from '@sota-io/sdk';
 import {
-  archiveFromDirectory,
+  archiveDirectoryWithReport,
   archiveFromFiles,
   archiveFromGitUrl,
   ArchiveBuilderError,
@@ -11,6 +11,9 @@ import {
   MAX_CLONE_BYTES,
 } from '../lib/archive-builder.js';
 import { HOSTED_FILES_ONLY_HINT } from '../lib/hosted-guard.js';
+import { type AccountReader, LOOKUP_TIMEOUT_MS, settleWithin, tryReadAccount } from '../lib/account.js';
+import { projectUrl } from '../lib/project-url.js';
+import { enterpriseNextSteps } from './account.js';
 
 export interface DeployToolOptions {
   /**
@@ -21,6 +24,13 @@ export interface DeployToolOptions {
    * false (default) for the local stdio server: files, git_url, directory.
    */
   hosted?: boolean;
+  /**
+   * Reads GET /v1/account; when it says Enterprise, the result tells the
+   * agent what the human must do before anyone can open the app.
+   */
+  readAccount?: AccountReader;
+  /** Bound for the account and project lookups after the upload (default 3 s). */
+  lookupTimeoutMs?: number;
 }
 
 const INTRO = `Deploy an application to sota.io. The platform auto-detects your framework and builds a Docker image automatically:
@@ -49,18 +59,29 @@ const LOCAL_MODES = `THREE WAYS to supply the source code — pick EXACTLY ONE:
 
 3. **directory** (local filesystem):
    Pass an absolute path. Defaults to the current working directory when
-   no other mode is given.`;
+   no other mode is given. A .sotaignore in that directory is honoured
+   (an empty one uploads everything else); without one, its .gitignore is
+   used, except that .env.production and .env.example are always kept.
+   Without either file, every file except the exclusions below is
+   uploaded, so add a .sotaignore before deploying a folder with notes or
+   credentials. git_url uploads the tracked files and reads only a
+   .sotaignore.`;
 
 const HOSTED_MODES = `Supply the source code as **files** (inline source from AI):
    ${FILES_MODE}
 
 This hosted server only accepts inline files. ${HOSTED_FILES_ONLY_HINT}`;
 
-const OUTRO = `IMPORTANT: Your app MUST listen on the PORT environment variable. For auto-detected frameworks (Next.js, Node.js, Python) PORT is 8080. For custom Dockerfiles, the port is auto-detected from the EXPOSE directive (e.g. EXPOSE 3000 sets PORT=3000). If no EXPOSE is found, it defaults to 8080.
+const OUTRO = `BEFORE the first deploy, call get-account: it says whether this is a sota Enterprise account and returns the full contract. The rules that make a deploy fail:
 
-Every project includes a managed PostgreSQL 17 database. Six environment variables are auto-injected into your container — no manual database configuration needed: DATABASE_URL (full connection string), PGHOST, PGPORT, PGUSER, PGPASSWORD, and PGDATABASE. Libraries that follow libpq conventions (node-postgres, pgx, psycopg2, Django) pick up the PG* variables automatically with no configuration. If your app needs database migrations, run them on startup.
+- Listen on 0.0.0.0 and the PORT environment variable: 8080 for auto-detected frameworks, the EXPOSE port of a Dockerfile.
+- Health gate: sota calls GET /health inside the container (GET / when /health answers 404) WITHOUT identity headers; it must answer 2xx or 3xx within 60 seconds, otherwise the deploy fails and the previous version keeps running.
+- One container, one web process, no persistent disk (files are lost on every deploy), no second service.
+- sota Enterprise: never build a login; read the X-Sota-Access-* headers and fail closed without them, EXCEPT GET /health (200) and GET / (2xx/3xx, no data), which the health gate and the edge check call without identity. An app answering 401 on / is marked down.
 
-Deployments use blue-green strategy for zero downtime. The old container keeps running until the new one passes health checks (60s timeout). Use get-logs to monitor build progress. .git/, node_modules/, .DS_Store and the local/secret env files .env, .env.local, .env.*.local and .envrc (any directory, any case) are excluded from the archive; set runtime secrets with set-env instead. Committed variants such as .env.production are kept (set-env values are not available at build time).`;
+The first deploy creates a PostgreSQL 17 database and injects DATABASE_URL (through PgBouncer in transaction mode: no LISTEN/NOTIFY, no session state, no named prepared statements) plus PGHOST, PGPORT, PGUSER, PGPASSWORD and PGDATABASE. Run migrations at start.
+
+The deploy runs in the background: this tool returns at once. Poll get-status every 10-15 seconds until the deployment is running or failed; on failed, get-status shows the reason and get-logs the build log. Blue-green: the old container keeps serving until the new one passes the health gate. .git/, node_modules/, .DS_Store and the local/secret env files .env, .env.local, .env.*.local and .envrc (any directory, any case) are excluded from the archive; set runtime secrets with set-env instead. .env.production is kept (set-env values are not available at build time): put public build-time values such as NEXT_PUBLIC_* there, never secrets.`;
 
 const FILES_DESCRIPTION =
   'Map of relative file paths to UTF-8 text content. Use when generating an app inline (e.g. from a Claude.ai web conversation). Include a framework manifest so auto-detection works.';
@@ -71,23 +92,47 @@ function errorResult(text: string) {
 
 export function registerDeployTool(server: McpServer, client: SotaClient, options: DeployToolOptions = {}) {
   if (options.hosted === true) {
-    registerHostedDeployTool(server, client);
+    registerHostedDeployTool(server, client, options);
   } else {
-    registerLocalDeployTool(server, client);
+    registerLocalDeployTool(server, client, options);
   }
 }
 
-async function uploadArchive(client: SotaClient, projectId: string, archive: Buffer, modeDescription: string) {
+async function uploadArchive(
+  client: SotaClient,
+  projectId: string,
+  archive: Buffer,
+  modeDescription: string,
+  options: DeployToolOptions,
+  note?: string,
+) {
   try {
     const deployment = await client.deploy(projectId, archive);
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `Deployment started (${modeDescription}):\n  ID: ${deployment.id}\n  Status: ${deployment.status}\n  URL: ${deployment.url || 'pending'}\n\nUse get-logs to check build progress.`,
-        },
-      ],
-    };
+    // The app URL is known before the deployment runs (deployment.url is
+    // only set once it is live). Best effort: older clients or a failed
+    // lookup just leave it out.
+    const timeoutMs = options.lookupTimeoutMs ?? LOOKUP_TIMEOUT_MS;
+    let appUrl: string | undefined;
+    if (typeof (client as Partial<SotaClient>).getProject === 'function') {
+      const project = await settleWithin(client.getProject(projectId), timeoutMs);
+      appUrl = project ? projectUrl(project) : undefined;
+    }
+    const lines = [
+      `Deployment started (${modeDescription}):`,
+      `  ID: ${deployment.id}`,
+      `  Status: ${deployment.status}`,
+      `  App URL: ${appUrl ?? deployment.url ?? 'pending'}`,
+    ];
+    if (note) lines.push('', note);
+    lines.push(
+      '',
+      'The build runs in the background. Poll get-status every 10-15 seconds until the status is running or failed (get-status shows the reason of a failure; get-logs shows the build log).',
+    );
+    const account = await tryReadAccount(options.readAccount, timeoutMs);
+    if (account?.enterprise) {
+      lines.push('', enterpriseNextSteps(account, appUrl));
+    }
+    return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
   } catch (error) {
     return errorResult(`Deploy failed during upload: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -100,7 +145,7 @@ function archiveError(error: unknown) {
 }
 
 /** Hosted (mcp.sota.io): inline files only. */
-function registerHostedDeployTool(server: McpServer, client: SotaClient) {
+function registerHostedDeployTool(server: McpServer, client: SotaClient, options: DeployToolOptions) {
   server.registerTool('deploy', {
     description: `${INTRO}\n\n${HOSTED_MODES}\n\n${OUTRO}`,
     inputSchema: {
@@ -122,12 +167,12 @@ function registerHostedDeployTool(server: McpServer, client: SotaClient) {
     } catch (error) {
       return archiveError(error);
     }
-    return uploadArchive(client, project_id, archive, `inline files (${Object.keys(files).length} entries)`);
+    return uploadArchive(client, project_id, archive, `inline files (${Object.keys(files).length} entries)`, options);
   });
 }
 
 /** Local stdio server (npx @sota-io/mcp): files, git_url or directory. */
-function registerLocalDeployTool(server: McpServer, client: SotaClient) {
+function registerLocalDeployTool(server: McpServer, client: SotaClient, options: DeployToolOptions) {
   server.registerTool('deploy', {
     description: `${INTRO}\n\n${LOCAL_MODES}\n\n${OUTRO}`,
     inputSchema: {
@@ -169,6 +214,7 @@ function registerLocalDeployTool(server: McpServer, client: SotaClient) {
 
     let archive: Buffer;
     let modeDescription: string;
+    let note: string | undefined;
     try {
       if (files !== undefined) {
         archive = archiveFromFiles(files);
@@ -178,12 +224,16 @@ function registerLocalDeployTool(server: McpServer, client: SotaClient) {
         modeDescription = `git clone (${git_url}${git_branch ? ` @ ${git_branch}` : ''})`;
       } else {
         const dir = directory || process.cwd();
-        archive = archiveFromDirectory(dir);
-        modeDescription = `directory (${dir})`;
+        const packed = archiveDirectoryWithReport(dir);
+        archive = packed.archive;
+        modeDescription = `directory (${dir}), ${packed.files} files`;
+        note = packed.ignoreFile
+          ? `Ignore rules: ${packed.ignoreFile}.`
+          : 'Ignore rules: none (no .sotaignore or .gitignore in the directory). Every file except .git, node_modules, .DS_Store and local .env files was uploaded. If the folder holds notes, credentials or data that must not leave the machine, add a .sotaignore and deploy again.';
       }
     } catch (error) {
       return archiveError(error);
     }
-    return uploadArchive(client, project_id, archive, modeDescription);
+    return uploadArchive(client, project_id, archive, modeDescription, options, note);
   });
 }
