@@ -14,7 +14,9 @@
  * Auth: a sota_xxx API key as `Authorization: Bearer <key>` is forwarded to
  * sota-api; an OAuth 2.1 access token (JWT) is verified and mapped to a
  * per-user key tagged `source=claude` (auth/token-bridge.ts). RFC 9728
- * protected-resource metadata is served for OAuth discovery.
+ * protected-resource metadata is served for OAuth discovery. /mcp refuses
+ * every anonymous request with 401 (sign-in at connect time); /mcp/signup
+ * keeps anonymous discovery + create_account (see below).
  */
 
 import crypto from 'node:crypto';
@@ -45,17 +47,27 @@ import { accountReader } from './lib/account.js';
 import { SERVER_INSTRUCTIONS } from './lib/guide.js';
 import { BUSY_RETRY_SECONDS, LARGE_BODIES } from './lib/upload-gate.js';
 
-// Tools that may be invoked WITHOUT authentication. Currently only
-// create_account — net-new users obviously don't have an API key yet.
-// Discovery requests (initialize, tools/list) are also allowed
-// unauthenticated so Claude can fetch capabilities before OAuth.
+// Two endpoints (from 1.9.0):
+//
+//   /mcp         The connector URL for everyone with an account. Every
+//                request without a credential, `initialize` included, gets
+//                401 + WWW-Authenticate (resource_metadata, scope), so a
+//                client that runs OAuth only when the connection itself is
+//                refused (a connector added with "sign in when needed", seen
+//                in Claude Desktop on Windows) always shows the sign-in.
+//   /mcp/signup  "Lazy authentication" for sign-up from inside a chat:
+//                discovery (initialize, tools/list, prompts) and
+//                `create_account` work without a credential; every other
+//                tool call gets 401, as /mcp did up to 1.8.0.
+//
+// MCP_ANONYMOUS_DISCOVERY=true restores the old mixed behaviour on /mcp
+// (rollback switch, no rebuild needed).
+
+// Tools that may be invoked WITHOUT authentication on /mcp/signup.
 const UNAUTHENTICATED_TOOLS = new Set(['create_account']);
-// MCP handshake + tools/list are reachable without auth so Claude.ai's
-// connector UI can render the tool catalogue (it shows "Konnektor hat keine
-// Tools verfügbar" otherwise — a dead-end state for the user). The
-// per-tool-call 401 + WWW-Authenticate is the actual OAuth trigger.
-// prompts/list and prompts/get serve only the static Enterprise checklist
-// (no API call, no account data), so they need no token either.
+// Methods reachable without a credential on /mcp/signup. prompts/list and
+// prompts/get serve only the static Enterprise checklist (no API call, no
+// account data).
 const UNAUTHENTICATED_METHODS = new Set([
   'initialize',
   'notifications/initialized',
@@ -64,7 +76,63 @@ const UNAUTHENTICATED_METHODS = new Set([
   'prompts/get',
 ]);
 
-function isUnauthenticatedAllowed(body: unknown): boolean {
+export type EndpointMode = 'auth_required' | 'signup' | 'discover';
+
+// /mcp/discover (anonymous, read-only listing for registries and directories):
+// these methods only, no credential accepted, small body, rate-limited per IP.
+const DISCOVERY_METHODS = new Set(['initialize', 'notifications/initialized', 'ping', 'tools/list', 'prompts/list']);
+
+/** Fixed-window request limiter: per key, plus a global cap (best effort; in memory, per process). */
+export class WindowLimiter {
+  private counts = new Map<string, number>();
+  private total = 0;
+  private windowStart = Date.now();
+  constructor(
+    private readonly perKey: number,
+    private readonly global: number,
+    private readonly windowMs = 60_000,
+  ) {}
+  take(key: string): boolean {
+    const now = Date.now();
+    if (now - this.windowStart >= this.windowMs) {
+      this.counts.clear();
+      this.total = 0;
+      this.windowStart = now;
+    }
+    const n = this.counts.get(key) ?? 0;
+    if (n >= this.perKey || this.total >= this.global) return false;
+    this.counts.set(key, n + 1);
+    this.total += 1;
+    return true;
+  }
+  retryAfterSeconds(): number {
+    return Math.max(1, Math.ceil((this.windowStart + this.windowMs - Date.now()) / 1000));
+  }
+}
+const DISCOVERY_LIMITER = new WindowLimiter(
+  Number(process.env.MCP_DISCOVERY_RATE_PER_IP ?? 60),
+  Number(process.env.MCP_DISCOVERY_RATE_GLOBAL ?? 1200),
+);
+
+/**
+ * Client address for the rate limit: the left-most X-Forwarded-For entry
+ * (the edge and worker Traefik append theirs), else the socket. A client can
+ * set that header itself, so the per-IP limit is best effort; the global cap
+ * bounds the total either way.
+ */
+function clientIp(req: Request): string {
+  const xff = req.headers['x-forwarded-for'];
+  const first = (Array.isArray(xff) ? xff[0] : xff ?? '').split(',')[0].trim();
+  return first || req.socket.remoteAddress || 'unknown';
+}
+
+/** Whether /mcp keeps the anonymous discovery of 1.8.0 (rollback switch). */
+export function anonymousDiscoveryOnMain(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env.MCP_ANONYMOUS_DISCOVERY ?? '').trim().toLowerCase() === 'true';
+}
+
+export function isUnauthenticatedAllowed(body: unknown, mode: EndpointMode): boolean {
+  if (mode === 'auth_required') return false;
   if (!body || typeof body !== 'object') return false;
   const b = body as Record<string, unknown>;
   const method = typeof b.method === 'string' ? b.method : '';
@@ -103,7 +171,8 @@ const LARGE_BODY_SLOT_BYTES = 1024 * 1024;
 const API_KEY_SHAPE = /^sota_[0-9a-f]{40}$/;
 
 async function mayPostLargeBody(req: Request): Promise<boolean> {
-  if (req.method !== 'POST' || req.path !== '/mcp') return false;
+  // Both MCP endpoints: a user who signed in on /mcp/signup deploys there too.
+  if (req.method !== 'POST' || (req.path !== '/mcp' && req.path !== '/mcp/signup')) return false;
   const auth = req.headers.authorization ?? '';
   if (!auth.startsWith('Bearer ')) return false;
   const token = auth.slice('Bearer '.length).trim();
@@ -178,9 +247,25 @@ app.get('/health', (_req: Request, res: Response) => {
 // Authorization Server (Supabase) and declares the audience binding.
 // Spec: https://datatracker.ietf.org/doc/html/rfc9728
 // MCP requirement: https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization
-app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
-  res.json({
-    resource: PUBLIC_ORIGIN,
+//
+// RFC 9728 §3.1: for a resource with a path the document lives at the
+// well-known prefix + that path, and its `resource` must equal the URL the
+// client connects to, path included (RFC 9728 §3.3; Claude checks this
+// exactly). The 401 of each endpoint points at its own document. The root
+// document keeps `resource` = the origin as up to 1.8.0, for clients that
+// cached it; clients that compare by prefix accept it for every path below.
+export const MCP_PATH = '/mcp';
+export const SIGNUP_PATH = '/mcp/signup';
+export const DISCOVER_PATH = '/mcp/discover';
+export const OAUTH_SCOPES = ['profile', 'email'];
+
+export function resourceMetadataUrl(path: string): string {
+  return `${PUBLIC_ORIGIN}/.well-known/oauth-protected-resource${path}`;
+}
+
+function protectedResourceMetadata(resource: string) {
+  return {
+    resource,
     // Point clients at OUR proxy instead of auth.sota.io directly. The
     // proxy strips `openid` from /authorize requests so Supabase never
     // sees it — works around the Supabase OAuth Server 500 bug regardless
@@ -189,7 +274,8 @@ app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) 
     // validation against the Supabase issuer keeps working.
     authorization_servers: [`${PUBLIC_ORIGIN}/auth/v1`],
     bearer_methods_supported: ['header'],
-    resource_documentation: 'https://sota.io/docs/integrations/claude',
+    resource_name: 'sota.io',
+    resource_documentation: 'https://sota.io/docs/mcp/setup',
     // 'openid' deliberately omitted: Supabase OAuth Server (May 2026)
     // returns a 500 "Error generating ID token" on /oauth/token when the
     // openid scope is requested. Without openid we get a working access
@@ -197,27 +283,89 @@ app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) 
     // MCP flow completes end-to-end. Re-add openid once Supabase fixes
     // their OIDC implementation; for now, identity claims (email, sub)
     // ride along on the access token without an explicit ID token.
-    scopes_supported: ['profile', 'email'],
+    scopes_supported: OAUTH_SCOPES,
     resource_signing_alg_values_supported: ['RS256', 'ES256'],
-  });
+  };
+}
+
+app.get('/.well-known/oauth-protected-resource', (_req: Request, res: Response) => {
+  res.json(protectedResourceMetadata(PUBLIC_ORIGIN));
 });
+for (const path of [MCP_PATH, SIGNUP_PATH]) {
+  app.get(`/.well-known/oauth-protected-resource${path}`, (_req: Request, res: Response) => {
+    res.json(protectedResourceMetadata(`${PUBLIC_ORIGIN}${path}`));
+  });
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // /mcp — Streamable HTTP transport endpoint
 // ───────────────────────────────────────────────────────────────────────────
 // Stateless mode: every request gets a fresh McpServer + transport instance.
 // Adequate for low-traffic; revisit if we see > 100 RPS sustained.
-function unauthorized(res: Response, reason: string, detail?: string) {
+function unauthorized(res: Response, path: string, reason: string, detail?: string, id: unknown = null) {
+  // RFC 6750 §3.1: a request without any credential gets no `error` code; a
+  // bad credential gets `invalid_token`, our own reason (token_expired,
+  // invalid_issuer, …) goes into error_description.
+  const error = reason === 'missing_token' ? '' : `, error="invalid_token", error_description="${reason}"`;
   res
     .status(401)
     .header(
       'WWW-Authenticate',
-      `Bearer realm="${PUBLIC_ORIGIN}", error="${reason}", resource_metadata="${PUBLIC_ORIGIN}/.well-known/oauth-protected-resource"`,
+      `Bearer realm="${PUBLIC_ORIGIN}"${error}, resource_metadata="${resourceMetadataUrl(path)}", scope="${OAUTH_SCOPES.join(' ')}"`,
     )
-    .json({ error: 'unauthorized', reason, detail });
+    .json({
+      // `error` / `reason` / `detail` as up to 1.8.0, for scripts that read them.
+      error: 'unauthorized',
+      reason,
+      detail: detail ?? 'Sign in: connect this server with OAuth, or pass Authorization: Bearer sota_<key>.',
+      id: id ?? null,
+    });
 }
 
-async function handleMcpRequest(req: Request, res: Response) {
+function requestId(body: unknown): unknown {
+  return body && typeof body === 'object' && 'id' in (body as Record<string, unknown>)
+    ? (body as Record<string, unknown>).id
+    : null;
+}
+
+/**
+ * Guard of /mcp/discover: anonymous, read-only listing for registries,
+ * directories and docs tooling. Returns true when the request was answered
+ * (refused) here. Nothing is ever executed on this path: only the methods in
+ * DISCOVERY_METHODS reach the MCP server, so no tool handler, no prompt and
+ * no API call can run, whatever the body says.
+ */
+function refuseOnDiscovery(req: Request, res: Response): boolean {
+  const body = req.body as Record<string, unknown> | unknown[] | undefined;
+  const id = requestId(body);
+  const refuse = (status: number, code: number, message: string) => {
+    res.status(status).json({ jsonrpc: '2.0', error: { code, message }, id });
+    return true;
+  };
+  if (req.headers.authorization !== undefined) {
+    // Nobody should configure the discovery URL and believe they are signed in.
+    return refuse(400, -32600, `${PUBLIC_ORIGIN}${DISCOVER_PATH} is anonymous and read-only and takes no credentials. To use sota.io, connect to ${PUBLIC_ORIGIN}${MCP_PATH} (sign-in with OAuth, or Authorization: Bearer sota_<key>).`);
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return refuse(400, -32600, 'Send one JSON-RPC request per POST.');
+  }
+  const ip = clientIp(req);
+  if (!DISCOVERY_LIMITER.take(ip)) {
+    res.header('Retry-After', String(DISCOVERY_LIMITER.retryAfterSeconds()));
+    return refuse(429, -32000, 'Too many discovery requests; retry in a minute.');
+  }
+  const method = typeof body.method === 'string' ? body.method : '';
+  if (!DISCOVERY_METHODS.has(method)) {
+    return refuse(403, -32601, `${PUBLIC_ORIGIN}${DISCOVER_PATH} only lists the tools (initialize, tools/list, prompts/list); "${method || 'this request'}" is not available here. To call tools, connect to ${PUBLIC_ORIGIN}${MCP_PATH} and sign in.`);
+  }
+  return false;
+}
+
+async function handleMcpRequest(req: Request, res: Response, path: string, mode: EndpointMode) {
+  if (mode === 'discover') {
+    if (refuseOnDiscovery(req, res)) return;
+  }
+
   // ── The hosted deploy tool never takes directory / git_url ──
   // Checked before auth and before the SDK parses the call, so no tool code
   // runs for such a request whatever the token or the SDK's argument
@@ -251,10 +399,14 @@ async function handleMcpRequest(req: Request, res: Response) {
   // constructed, but with a "phantom" apiKey that never reaches sota-api
   // (only the create_account tool is registered and it doesn't use SotaClient).
   let apiKey = '';
-  const allowAnonymous = !rawToken && isUnauthenticatedAllowed(req.body);
+  // On /mcp/discover the guard above already refused every credential and
+  // every method but initialize / tools/list / prompts/list.
+  const allowAnonymous = mode === 'discover' || (!rawToken && isUnauthenticatedAllowed(req.body, mode));
+  auditMeta.endpoint = path;
 
   if (!rawToken && !allowAnonymous) {
-    unauthorized(res, 'missing_token', 'Pass Authorization: Bearer <jwt>');
+    logEvent('info', { ...auditMeta, event: 'auth_required', method: req.body?.method });
+    unauthorized(res, path, 'missing_token', undefined, requestId(req.body));
     return;
   }
 
@@ -286,7 +438,7 @@ async function handleMcpRequest(req: Request, res: Response) {
           error_code: err.code,
           error_message: errorMessage(err),
         });
-        unauthorized(res, err.code, err.message);
+        unauthorized(res, path, err.code, err.message, requestId(req.body));
         return;
       }
       // Database / network problem during bridge — surface as 503, not 401
@@ -314,7 +466,9 @@ async function handleMcpRequest(req: Request, res: Response) {
   );
 
   // ALL tools are always registered so they show up in tools/list, regardless
-  // of whether the current request is authenticated. Why: when a client like
+  // of whether the current request is authenticated (anonymous requests reach
+  // this point only on /mcp/signup, or on /mcp with MCP_ANONYMOUS_DISCOVERY).
+  // Why: when a client like
   // Claude.ai discovers an MCP connector, it asks tools/list once. If we hide
   // the 13 authenticated tools from that listing, the LLM only sees
   // create_account and never tries to call deploy/list-projects/etc — which
@@ -382,12 +536,51 @@ async function handleMcpRequest(req: Request, res: Response) {
   }
 }
 
-app.post('/mcp', handleMcpRequest);
-app.get('/mcp', (_req: Request, res: Response) => {
-  // GET on /mcp without an active session = 405 Method Not Allowed.
-  // (Stateful mode would use GET for the SSE response stream; we're stateless.)
-  res.status(405).json({ error: 'method_not_allowed', allowed: 'POST' });
+function mainMode(): EndpointMode {
+  return anonymousDiscoveryOnMain() ? 'signup' : 'auth_required';
+}
+
+app.post(MCP_PATH, (req: Request, res: Response) => handleMcpRequest(req, res, MCP_PATH, mainMode()));
+app.post(SIGNUP_PATH, (req: Request, res: Response) => handleMcpRequest(req, res, SIGNUP_PATH, 'signup'));
+app.post(DISCOVER_PATH, (req: Request, res: Response) => handleMcpRequest(req, res, DISCOVER_PATH, 'discover'));
+app.get(DISCOVER_PATH, (_req: Request, res: Response) => {
+  res.status(405).header('Allow', 'POST').json({ error: 'method_not_allowed', allowed: 'POST' });
 });
+
+function getMcp(path: string, mode: () => EndpointMode) {
+  return async (req: Request, res: Response) => {
+    // Stateless server: no GET stream, so 405. On the auth-required endpoint
+    // an anonymous GET gets the same 401 as an anonymous POST, so a client
+    // that probes with GET first also learns where to sign in. A credential
+    // is checked before the 405 (JWT: verified; sota_ key: its shape, the API
+    // checks the key itself on the first real call), so a GET probe with a
+    // stale token also learns that it must sign in again.
+    const auth = req.headers.authorization ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : '';
+    if (!token) {
+      if (mode() === 'auth_required') {
+        unauthorized(res, path, 'missing_token');
+        return;
+      }
+    } else if (token.startsWith('sota_')) {
+      if (!API_KEY_SHAPE.test(token)) {
+        unauthorized(res, path, 'invalid_api_key', 'The API key is not a sota_ key of the right shape.');
+        return;
+      }
+    } else {
+      try {
+        await verifyJwt(token);
+      } catch (err) {
+        const code = err instanceof JwtVerificationError ? err.code : 'invalid_token';
+        unauthorized(res, path, code, errorMessage(err));
+        return;
+      }
+    }
+    res.status(405).header('Allow', 'POST').json({ error: 'method_not_allowed', allowed: 'POST' });
+  };
+}
+app.get(MCP_PATH, getMcp(MCP_PATH, mainMode));
+app.get(SIGNUP_PATH, getMcp(SIGNUP_PATH, () => 'signup'));
 
 // ───────────────────────────────────────────────────────────────────────────
 // Root index for humans hitting mcp.sota.io directly
@@ -397,11 +590,16 @@ app.get('/', (_req: Request, res: Response) => {
     service: 'sota-mcp',
     version: VERSION,
     description: 'MCP server for sota.io — EU-native PaaS. Use the Streamable HTTP transport at /mcp.',
-    docs: 'https://sota.io/docs/integrations/claude',
+    docs: 'https://sota.io/docs/mcp/setup',
     endpoints: {
       health: `${PUBLIC_ORIGIN}/health`,
-      mcp: `${PUBLIC_ORIGIN}/mcp`,
-      protected_resource_metadata: `${PUBLIC_ORIGIN}/.well-known/oauth-protected-resource`,
+      // The connector URL: sign-in when the connector is added.
+      mcp: `${PUBLIC_ORIGIN}${MCP_PATH}`,
+      // Sign-up from inside a chat (create_account without a credential).
+      signup: `${PUBLIC_ORIGIN}${SIGNUP_PATH}`,
+      // Anonymous, read-only tool listing for registries and directories.
+      discover: `${PUBLIC_ORIGIN}${DISCOVER_PATH}`,
+      protected_resource_metadata: resourceMetadataUrl(MCP_PATH),
     },
   });
 });

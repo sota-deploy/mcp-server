@@ -243,6 +243,7 @@ function archiveError(error: unknown) {
 /** Hosted (mcp.sota.io): inline files only. */
 function registerHostedDeployTool(server: McpServer, client: SotaClient, options: DeployToolOptions) {
   server.registerTool('deploy', {
+    title: 'Deploy app',
     description: `${INTRO}\n\n${HOSTED_MODES}\n\n${OUTRO}`,
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to deploy to. Use list-projects to find the ID.'),
@@ -285,6 +286,7 @@ function registerHostedDeployTool(server: McpServer, client: SotaClient, options
 /** Local stdio server (npx @sota-io/mcp): files, git_url or directory. */
 function registerLocalDeployTool(server: McpServer, client: SotaClient, options: DeployToolOptions) {
   server.registerTool('deploy', {
+    title: 'Deploy app',
     description: `${INTRO}\n\n${LOCAL_MODES}\n\n${OUTRO}`,
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to deploy to. Use list-projects to find the ID.'),

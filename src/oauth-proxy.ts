@@ -60,7 +60,13 @@ function rewriteMetadata(
   const base = `${publicOrigin}/auth/v1`;
   return {
     ...upstreamMetadata,
-    issuer: upstreamMetadata.issuer, // keep Supabase's issuer so JWT validation still works
+    // Known, deliberate deviation from RFC 8414 §3.3: this document is served
+    // for the authorization server `${publicOrigin}/auth/v1`, but `issuer`
+    // stays the upstream's (https://auth.sota.io/auth/v1). The `iss` of every
+    // token, and any RFC 9207 `iss` on the authorization response, carry the
+    // upstream value; rewriting it here would make those checks fail. Clients
+    // in use (Claude, the MCP SDK) do not compare it with the discovery URL.
+    issuer: upstreamMetadata.issuer,
     authorization_endpoint: `${base}/oauth/authorize`,
     token_endpoint: `${base}/oauth/token`,
     userinfo_endpoint: `${base}/oauth/userinfo`,
@@ -158,9 +164,50 @@ async function streamUpstreamResponse(
   res.end(buf);
 }
 
+/**
+ * Every URL a client may derive from the issuer `${origin}/auth/v1` to find
+ * the authorization server metadata: RFC 8414 path insertion (what the MCP
+ * spec and the MCP SDK try first), OIDC path insertion, OIDC appended, and
+ * the appended OAuth form served since 1.4. All of them answer the same
+ * rewritten document; before 1.9.0 only the last one did, so an SDK-based
+ * client fell through to the OIDC appended URL and got the upstream document
+ * with the upstream endpoints (no openid strip).
+ */
+export const AUTH_METADATA_PATHS = [
+  '/.well-known/oauth-authorization-server/auth/v1',
+  '/.well-known/openid-configuration/auth/v1',
+  '/auth/v1/.well-known/openid-configuration',
+  '/auth/v1/.well-known/oauth-authorization-server',
+];
+
+/**
+ * GoTrue's token endpoint answers a failed grant with its own error shape
+ * (`{"code":400,"error_code":"refresh_token_not_found","msg":…}`, checked
+ * against GoTrue v2.198 on dev 2026-11-26) instead of RFC 6749 §5.2
+ * (`{"error":"invalid_grant",…}`). Claude treats only `invalid_grant` on a
+ * refresh as "sign in again". Adds `error` / `error_description` to such a
+ * body and keeps GoTrue's own fields; a body that already has `error` is
+ * returned unchanged.
+ */
+export function oauthTokenErrorBody(body: unknown, status: number): Record<string, unknown> | null {
+  if (status < 400 || status >= 500) return null;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.error === 'string') return null;
+  const code = String(b.error_code ?? '').toLowerCase();
+  const error = code.includes('client')
+    ? 'invalid_client'
+    : code.includes('scope')
+      ? 'invalid_scope'
+      : status === 400 && /(grant|refresh|code|token|expired|not_found|verifier|redirect)/.test(code)
+        ? 'invalid_grant'
+        : 'invalid_request';
+  return { error, error_description: String(b.msg ?? b.message ?? code ?? 'request failed'), ...b };
+}
+
 export function mountOAuthProxy(app: Express, publicOrigin: string): void {
   // 1) Rewritten metadata document.
-  app.get('/auth/v1/.well-known/oauth-authorization-server', async (_req, res) => {
+  app.get(AUTH_METADATA_PATHS, async (_req, res) => {
     try {
       const upstream = await fetch(
         `${UPSTREAM}/.well-known/oauth-authorization-server`,
@@ -205,7 +252,42 @@ export function mountOAuthProxy(app: Express, publicOrigin: string): void {
     }
   });
 
-  // 3) All other /auth/v1/* paths — transparent forward.
+  // 3) /oauth/token — forward; failed grants get RFC 6749 error fields.
+  app.post('/auth/v1/oauth/token', async (req, res) => {
+    try {
+      const search = new URL(`http://x${req.originalUrl}`).search;
+      const upstream = (await forward(req, '/oauth/token', search || undefined)) as unknown as {
+        status: number;
+        headers: Headers;
+        text: () => Promise<string>;
+      } | null;
+      if (!upstream) {
+        res.status(502).end();
+        return;
+      }
+      const text = await upstream.text();
+      let mapped: Record<string, unknown> | null = null;
+      try {
+        mapped = oauthTokenErrorBody(JSON.parse(text), upstream.status);
+      } catch {
+        mapped = null;
+      }
+      upstream.headers.forEach((value: string, key: string) => {
+        if (['content-encoding', 'transfer-encoding', 'connection', 'content-length'].includes(key.toLowerCase())) return;
+        res.setHeader(key, value);
+      });
+      res.status(upstream.status);
+      if (mapped) res.json(mapped);
+      else res.end(text);
+    } catch (err) {
+      res.status(502).json({
+        error: 'proxy_error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  // 4) All other /auth/v1/* paths — transparent forward.
   app.all('/auth/v1/*', async (req, res) => {
     try {
       // Some clients (and SDKs) send scope to other endpoints too; strip it

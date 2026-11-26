@@ -45,6 +45,7 @@ export function managedKeys(envVars: ReadonlyArray<{ key: string; managed?: bool
 
 export function registerEnvTools(server: McpServer, client: SotaClient) {
   server.registerTool('set-env', {
+    title: 'Set environment variables',
     description: 'Set an environment variable for a project. Variables are encrypted at rest (AES-256-GCM) and injected at container runtime. NOTE: DATABASE_URL, PGHOST, PGPORT, PGUSER, PGPASSWORD, and PGDATABASE are all auto-injected for the managed PostgreSQL database — you do NOT need to set any of them manually. The PORT variable is auto-managed: 8080 for auto-detected frameworks (Next.js, Node.js, Python), or auto-detected from the Dockerfile EXPOSE directive for custom Dockerfile builds. IMPORTANT: Changing env vars does NOT restart the app: call redeploy (same image, new env, no build) or deploy (new code) to apply them. Values set here are only available at runtime, never at build time: build-time values such as Next.js NEXT_PUBLIC_* belong in a committed file such as .env.production. On a sota Enterprise account do not set login or session secrets for your own sign-in: sota Access does the sign-in.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID)'),
@@ -77,6 +78,7 @@ export function registerEnvTools(server: McpServer, client: SotaClient) {
   });
 
   server.registerTool('get-env', {
+    title: 'Show environment variables',
     description: 'List the environment variables of a project: names with masked values (the first 4 characters of values with at least 20 characters, and the length); variables sota manages for the database (DATABASE_URL, PG*) are marked "managed" and show only their length. PORT is set by sota at runtime and not listed. To see one value in clear, pass its key with reveal: true; a managed database value (it holds the database password) also needs include_managed: true. Values are often secrets (API keys, the database password): do not reveal them into the conversation unless the user asks for that value; to check that a variable is set, the masked listing is enough. The masking keeps secrets out of the conversation; it is not access control: whoever holds this connection or API key can read every value.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID)'),

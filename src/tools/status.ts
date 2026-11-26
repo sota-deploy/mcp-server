@@ -48,6 +48,7 @@ export function deploymentLines(d: DeploymentLike, heading = 'Current deployment
 
 export function registerStatusTool(server: McpServer, client: SotaClient, options: StatusToolOptions = {}) {
   server.registerTool('get-status', {
+    title: 'Show deployment status',
     description: `Get the current deployment status for a project, including the live host (the project URL from list-projects: https://{slug}.sota.io, or https://{app}.{label}.sota.io on a sota Enterprise account), detected framework, the reason of a failed deployment (including the HTTP status the app answered on its health path, or that nothing answered) and recent deployment history. Deployment statuses: pending (queued), building (build in progress), built (image ready), deploying (starting container + health checks), running (live and healthy), failed (build or health check error), stopped (replaced by newer deployment).
 
 After deploy or redeploy, call this ONCE with wait_for: "finished": it waits on the server until the deployment is running or failed (up to max_wait_seconds, default ${DEFAULT_WAIT_SECONDS}, at most ${MAX_WAIT_SECONDS}) and returns early with retry_after_seconds when it is still building; then call it again the same way. Do not poll in a tight loop.`,

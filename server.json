@@ -6,12 +6,12 @@
     "url": "https://github.com/sota-deploy/mcp-server",
     "source": "github"
   },
-  "version": "1.8.0",
+  "version": "1.9.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@sota-io/mcp",
-      "version": "1.8.0",
+      "version": "1.9.0",
       "transport": {
         "type": "stdio"
       }
@@ -22,5 +22,12 @@
       "type": "streamable-http",
       "url": "https://mcp.sota.io/mcp"
     }
-  ]
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "authentication": "OAuth 2.1 sign-in with the sota.io account, or Authorization: Bearer sota_<API key>, on https://mcp.sota.io/mcp",
+      "anonymousDiscoveryUrl": "https://mcp.sota.io/mcp/discover",
+      "anonymousDiscoveryNote": "Read-only listing for registries and directories: initialize, tools/list and prompts/list without a credential; every tool call is refused. Connect clients to the remote URL above, not to this one."
+    }
+  }
 }

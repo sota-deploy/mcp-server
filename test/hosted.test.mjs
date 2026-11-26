@@ -156,8 +156,8 @@ async function captureLogs(fn) {
   return lines;
 }
 
-function rpc(base, body, headers = {}) {
-  return fetch(`${base}/mcp`, {
+function rpc(base, body, headers = {}, path = '/mcp') {
+  return fetch(`${base}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
     body: JSON.stringify(body),
@@ -205,7 +205,7 @@ test('/health reports the commit and build time, "unknown" without the build arg
 
 test('hosted tools/list over HTTP advertises no directory / git_url', async () => {
   await withServer(async (base) => {
-    const res = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    const res = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { authorization: `Bearer ${KEY_SHAPED}` });
     assert.equal(res.status, 200);
     const { result } = await rpcResult(res);
     const deploy = result.tools.find((t) => t.name === 'deploy');
@@ -278,9 +278,14 @@ test('hosted HTTP: an unauthenticated 1 MB post is refused with 413 before it is
     const body = await res.json();
     assert.equal(body.error.code, -32600);
     assert.match(body.error.message, /64kb/);
-    // Small anonymous discovery still works.
-    const ok = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    // Small anonymous discovery still works on the sign-up endpoint; /mcp
+    // answers it with 401 (sign-in at connect time).
+    const ok = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, {}, '/mcp/signup');
     assert.equal(ok.status, 200);
+    const anon = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    assert.equal(anon.status, 401);
+    // An anonymous large post to /mcp/signup is refused before it is read too.
+    assert.equal((await rpc(base, padded(1024 * 1024), {}, '/mcp/signup')).status, 413);
     // A bearer token of the wrong shape gets the small limit too.
     const fake = await rpc(base, padded(1024 * 1024), { authorization: 'Bearer not-a-real-token' });
     assert.equal(fake.status, 413);

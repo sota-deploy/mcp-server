@@ -4,6 +4,7 @@ import { SotaClient } from '@sota-io/sdk';
 
 export function registerDomainTools(server: McpServer, client: SotaClient) {
   server.registerTool('add-domain', {
+    title: 'Add custom domain',
     description: 'Add a custom domain to a sota.io project. Each project supports up to 5 custom domains with automatic HTTPS via Let\'s Encrypt. Returns DNS setup instructions: for apex domains (example.com), add an A record pointing to 23.88.45.28; for subdomains (app.example.com), add a CNAME record pointing to {slug}.sota.io. Domain statuses: pending (waiting for DNS) → verified (SSL provisioning) → active (live with HTTPS). After DNS is configured, verification and SSL provisioning happen automatically.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to add the domain to. Use list-projects to find the ID'),
@@ -35,6 +36,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
   });
 
   server.registerTool('list-domains', {
+    title: 'List custom domains',
     description: 'List all custom domains for a sota.io project. Shows domain name, status (pending/verified/active), and ID for each domain. Use get-domain with a domain ID to see DNS instructions and full details.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to list domains for. Use list-projects to find the ID'),
@@ -66,6 +68,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
   });
 
   server.registerTool('get-domain', {
+    title: 'Show custom domain',
     description: 'Get details of a custom domain including its current status and DNS setup instructions. Domain statuses: pending (DNS not yet configured), verified (DNS confirmed, SSL provisioning), active (live with HTTPS). If status is \'pending\', configure the DNS record as shown in the instructions.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID). Use list-projects to find the ID'),
@@ -104,6 +107,7 @@ export function registerDomainTools(server: McpServer, client: SotaClient) {
   });
 
   server.registerTool('remove-domain', {
+    title: 'Remove custom domain',
     description: 'Remove a custom domain from a sota.io project. This removes the domain mapping and its SSL certificate. The DNS records at your registrar are NOT automatically removed — clean those up manually. This action is immediate and irreversible.',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID). Use list-projects to find the ID'),

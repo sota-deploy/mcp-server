@@ -23,6 +23,7 @@ The sota API answers a redeploy only when it has finished (running or failed), t
 
 export function registerRedeployTool(server: McpServer, client: SotaClient, options: RedeployToolOptions = {}) {
   server.registerTool('redeploy', {
+    title: 'Restart with new settings',
     description: DESCRIPTION,
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to redeploy. Use list-projects to find the ID'),

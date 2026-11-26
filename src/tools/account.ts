@@ -86,6 +86,7 @@ export function registerAccountTool(server: McpServer, readAccount: AccountReade
   server.registerTool(
     'get-account',
     {
+      title: 'Show account and limits',
       description:
         'Call this FIRST, before writing or deploying code. Returns the signed-in sota.io account: plan limits (projects, databases, memory per app, upload size), whether it is a sota Enterprise account (company label, app URL scheme https://<app>.<label>.sota.io, own server, sign-in connection status, the dashboard page where the owner grants access) and the build contract the app must follow: one container, PORT, health gate, database through PgBouncer, upload rules, and for Enterprise the identity headers, fail-closed rule, health-without-identity rule and what the human must do before anyone can open the app. Read-only.',
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },

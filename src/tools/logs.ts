@@ -4,6 +4,7 @@ import { SotaClient } from '@sota-io/sdk';
 
 export function registerLogsTool(server: McpServer, client: SotaClient) {
   server.registerTool('get-logs', {
+    title: 'Show build logs',
     description: 'Get the build and deploy log of a deployment (logs of the running app are not available yet). If no deployment_id is provided, returns the log of the latest deployment. Use this after calling deploy to follow the build and diagnose build failures: framework detection, dependency installation and build steps. The reason of a failed health check is shown by get-status. If a deployment fails, check the logs for error details — common issues include missing dependencies, build errors, or the app not listening on the correct PORT (check the PORT env var — 8080 for auto-detected frameworks, or the EXPOSE value from Dockerfile).',
     inputSchema: {
       project_id: z.string().describe('Project ID (UUID) to get logs for'),

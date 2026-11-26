@@ -36,6 +36,7 @@ export function registerCreateAccountTool(server: McpServer) {
   server.registerTool(
     "create_account",
     {
+      title: "Create a sota.io account",
       description: `Sign up for a brand-new sota.io account from inside Claude — no browser, no copy-paste. Two-step flow:
 
 STEP 1: Call with just \`email\`. We send a 6-digit confirmation code to that email.
@@ -204,7 +205,7 @@ sota.io is an EU-native PaaS hosted in Germany — GDPR-compliant by default, no
 
 The API key authenticates the sota.io REST API (api.sota.io) and the sota CLI directly.
 
-For Claude connector usage and tool activation, see https://sota.io/docs/integrations/claude .`,
+To use the account in Claude, add the connector URL https://mcp.sota.io/mcp and sign in with this email (steps: https://sota.io/docs/mcp/setup ).`,
             },
           ],
           _meta: {
