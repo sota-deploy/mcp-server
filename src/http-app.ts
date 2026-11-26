@@ -28,6 +28,7 @@ import { registerDeployTool } from './tools/deploy.js';
 import { registerLogsTool } from './tools/logs.js';
 import { registerEnvTools } from './tools/env.js';
 import { registerRollbackTool } from './tools/rollback.js';
+import { registerRedeployTool } from './tools/redeploy.js';
 import { registerStatusTool } from './tools/status.js';
 import { registerDomainTools } from './tools/domains.js';
 import { verifyJwt, JwtVerificationError } from './auth/verify-jwt.js';
@@ -38,8 +39,11 @@ import { hostedDeployRejection } from './lib/hosted-guard.js';
 import { errorMessage, logEvent } from './lib/log.js';
 import { BUILD_TIME, GIT_SHA, PACKAGE_VERSION } from './lib/version.js';
 import { registerAccountTool, registerChecklistPrompt } from './tools/account.js';
+import { registerSourceTools } from './tools/source.js';
+import { sourceApi } from './lib/source-api.js';
 import { accountReader } from './lib/account.js';
 import { SERVER_INSTRUCTIONS } from './lib/guide.js';
+import { BUSY_RETRY_SECONDS, LARGE_BODIES } from './lib/upload-gate.js';
 
 // Tools that may be invoked WITHOUT authentication. Currently only
 // create_account — net-new users obviously don't have an API key yet.
@@ -80,7 +84,67 @@ export const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? 'https://mcp.sota.io';
 const VERSION = PACKAGE_VERSION;
 
 export const app = express();
-app.use(express.json({ limit: '4mb' }));
+
+// Body limits. Every call an anonymous client may make (initialize,
+// tools/list, prompts, create_account) and every call but an inline deploy
+// is a few KB; 64 KB leaves room. Only POST /mcp with a credential that
+// looks valid BEFORE the body is read (a sota_ key of the right shape, or a
+// JWT that verifies) gets the large limit, which an inline deploy needs (up
+// to 10 MB decoded; base64 adds a third). At most LARGE_BODIES.limit large
+// bodies are read and parsed at the same time; the next one gets a "busy"
+// answer. A body above the limit is refused with 413 from its
+// Content-Length, before it is read.
+export const SMALL_BODY_LIMIT = '64kb';
+export const LARGE_BODY_LIMIT = '16mb';
+const smallJson = express.json({ limit: SMALL_BODY_LIMIT });
+const largeJson = express.json({ limit: LARGE_BODY_LIMIT });
+/** Bodies above this size need a slot of LARGE_BODIES. */
+const LARGE_BODY_SLOT_BYTES = 1024 * 1024;
+const API_KEY_SHAPE = /^sota_[0-9a-f]{40}$/;
+
+async function mayPostLargeBody(req: Request): Promise<boolean> {
+  if (req.method !== 'POST' || req.path !== '/mcp') return false;
+  const auth = req.headers.authorization ?? '';
+  if (!auth.startsWith('Bearer ')) return false;
+  const token = auth.slice('Bearer '.length).trim();
+  if (API_KEY_SHAPE.test(token)) return true;
+  if (token.startsWith('sota_') || token === '') return false;
+  try {
+    await verifyJwt(token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+app.use(async (req: Request, res: Response, next) => {
+  if (!(await mayPostLargeBody(req))) {
+    smallJson(req, res, next);
+    return;
+  }
+  const length = Number(req.headers['content-length'] ?? NaN);
+  if (Number.isFinite(length) && length <= LARGE_BODY_SLOT_BYTES) {
+    largeJson(req, res, next);
+    return;
+  }
+  const release = LARGE_BODIES.tryAcquire();
+  if (!release) {
+    res
+      .status(503)
+      .header('Retry-After', String(BUSY_RETRY_SECONDS))
+      .json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: `The sota.io MCP server is busy with other large uploads; retry in ${BUSY_RETRY_SECONDS} s.` },
+        id: null,
+      });
+    return;
+  }
+  res.on('close', release);
+  largeJson(req, res, (err?: unknown) => {
+    release();
+    next(err);
+  });
+});
 // Required for the /auth/v1/oauth/token proxy passthrough — Supabase's
 // token endpoint expects application/x-www-form-urlencoded bodies.
 app.use(express.urlencoded({ extended: true, limit: '64kb' }));
@@ -276,7 +340,9 @@ async function handleMcpRequest(req: Request, res: Response) {
   registerLogsTool(server, client);
   registerEnvTools(server, client);
   registerRollbackTool(server, client);
+  registerRedeployTool(server, client);
   registerStatusTool(server, client);
+  registerSourceTools(server, sourceApi(SOTA_API_URL, apiKey || 'anonymous'));
   registerDomainTools(server, client);
 
   // Stateless transport — no session header required.
@@ -338,4 +404,30 @@ app.get('/', (_req: Request, res: Response) => {
       protected_resource_metadata: `${PUBLIC_ORIGIN}/.well-known/oauth-protected-resource`,
     },
   });
+});
+
+// Body parser errors as JSON-RPC answers: 413 for a body above the limit
+// (refused from its Content-Length before it is read), 400 for broken JSON.
+app.use((err: unknown, _req: Request, res: Response, next: express.NextFunction) => {
+  const e = err as { type?: string } | undefined;
+  if (!e || res.headersSent) {
+    next(err);
+    return;
+  }
+  if (e.type === 'entity.too.large') {
+    res.status(413).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32600,
+        message: `Request body too large. Without a valid credential the limit is ${SMALL_BODY_LIMIT}; an authenticated deploy may send up to ${LARGE_BODY_LIMIT} (10 MB of files after base64 decoding).`,
+      },
+      id: null,
+    });
+    return;
+  }
+  if (e.type === 'entity.parse.failed') {
+    res.status(400).json({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error: the request body is not valid JSON.' }, id: null });
+    return;
+  }
+  next(err);
 });

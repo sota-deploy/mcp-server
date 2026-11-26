@@ -88,14 +88,81 @@ export class ArchiveBuilderError extends Error {
 }
 
 /**
- * Pack a record of file paths → text content into a tar.gz Buffer.
- *
- * Each value is treated as UTF-8 text. Binary assets are not supported in
- * this mode — use `archiveFromGitUrl` for that. The caller is responsible
- * for including framework manifests (package.json, requirements.txt, or a
- * Dockerfile) so the backend's auto-detection picks the right builder.
+ * One inline file: a plain string is UTF-8 text; the object form can carry
+ * binary content (images, fonts) as base64.
  */
-export function archiveFromFiles(files: Record<string, string>): Buffer {
+export type InlineFile = string | { content: string; encoding?: 'utf8' | 'base64' };
+
+const BASE64_INVALID = /[^A-Za-z0-9+/=\s]/;
+const BASE64_PAD_MISPLACED = /=[\s]*[^=\s]/;
+
+/**
+ * Checks one inline file and returns its decoded size without decoding it.
+ * base64 must be standard base64 (RFC 4648 section 4, padding optional,
+ * whitespace and line breaks ignored); anything else is rejected with the
+ * path in the message, so a truncated or URL-safe string never ships as a
+ * corrupt asset. No copy of the content is made.
+ */
+export function inlineFileSize(path: string, file: InlineFile): number {
+  if (typeof file === 'string') return Buffer.byteLength(file, 'utf8');
+  if (!file || typeof file !== 'object' || typeof file.content !== 'string') {
+    throw new ArchiveBuilderError('bad_file', `files["${path}"] must be a string or { content, encoding }`);
+  }
+  const encoding = file.encoding ?? 'utf8';
+  if (encoding === 'utf8') return Buffer.byteLength(file.content, 'utf8');
+  if (encoding !== 'base64') {
+    throw new ArchiveBuilderError('bad_encoding', `files["${path}"].encoding must be "utf8" or "base64"`);
+  }
+  const s = file.content;
+  const invalid = () =>
+    new ArchiveBuilderError(
+      'invalid_base64',
+      `files["${path}"] is not valid base64 (standard alphabet A-Z a-z 0-9 + /, optional = padding, nothing cut off); re-encode the file and try again`,
+    );
+  if (BASE64_INVALID.test(s) || BASE64_PAD_MISPLACED.test(s)) throw invalid();
+  // Count significant characters and padding in one pass (no copy).
+  let chars = 0;
+  let pad = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09 || c === 0x0b || c === 0x0c) continue;
+    if (c === 0x3d) pad++;
+    else chars++;
+  }
+  if (pad > 2) throw invalid();
+  if (pad > 0 && (chars + pad) % 4 !== 0) throw invalid();
+  const rem = chars % 4;
+  if (rem === 1) throw invalid();
+  return Math.floor(chars / 4) * 3 + (rem === 0 ? 0 : rem - 1);
+}
+
+/** Decode one inline file to its bytes (validated by inlineFileSize first). */
+export function decodeInlineFile(path: string, file: InlineFile): Buffer {
+  const expected = inlineFileSize(path, file);
+  if (typeof file === 'string') return Buffer.from(file, 'utf8');
+  if ((file.encoding ?? 'utf8') === 'utf8') return Buffer.from(file.content, 'utf8');
+  // Node's decoder skips whitespace itself; the length check proves that
+  // every character was decoded.
+  const buf = Buffer.from(file.content, 'base64');
+  if (buf.length !== expected) {
+    throw new ArchiveBuilderError('invalid_base64', `files["${path}"] is not valid base64 (it does not decode cleanly); re-encode the file and try again`);
+  }
+  return buf;
+}
+
+/**
+ * Pack a record of file paths → content into a tar.gz Buffer.
+ *
+ * A string value is UTF-8 text; `{ content, encoding: "base64" }` carries
+ * binary content. The size limit counts decoded bytes and is checked for
+ * all files before anything is decoded; files are then decoded and written
+ * one at a time, so at most one decoded file is held in memory. Two paths
+ * that name the same file (`a`, `./a`, `/a`) are refused. The caller is
+ * responsible for including framework manifests (package.json,
+ * requirements.txt, or a Dockerfile) so the backend's auto-detection picks
+ * the right builder.
+ */
+export function archiveFromFiles(files: Record<string, InlineFile>): Buffer {
   const entries = Object.entries(files);
   if (entries.length === 0) {
     throw new ArchiveBuilderError('empty_files', 'files map cannot be empty');
@@ -108,26 +175,30 @@ export function archiveFromFiles(files: Record<string, string>): Buffer {
   }
 
   let totalBytes = 0;
-  const sanitised: Array<[string, Buffer]> = [];
+  const seen = new Set<string>();
+  const planned: Array<[string, string, InlineFile]> = [];
   for (const [rawPath, content] of entries) {
     const safePath = sanitiseInlinePath(rawPath);
-    const buf = Buffer.from(content, 'utf8');
-    totalBytes += buf.byteLength;
+    if (seen.has(safePath)) {
+      throw new ArchiveBuilderError('bad_path', `two entries name the same file: ${safePath}`);
+    }
+    seen.add(safePath);
+    totalBytes += inlineFileSize(rawPath, content);
     if (totalBytes > MAX_INLINE_TOTAL_BYTES) {
       throw new ArchiveBuilderError(
         'inline_too_large',
-        `combined content exceeds ${MAX_INLINE_TOTAL_BYTES} bytes`,
+        `combined content exceeds ${MAX_INLINE_TOTAL_BYTES} bytes (decoded)`,
       );
     }
-    sanitised.push([safePath, buf]);
+    planned.push([rawPath, safePath, content]);
   }
 
   const workdir = mkdtempSync(join(tmpdir(), 'sota-inline-'));
   try {
-    for (const [path, buf] of sanitised) {
-      const abs = join(workdir, path);
+    for (const [rawPath, safePath, content] of planned) {
+      const abs = join(workdir, safePath);
       mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, buf);
+      writeFileSync(abs, decodeInlineFile(rawPath, content));
     }
     return tarGzWorkdir(workdir);
   } finally {

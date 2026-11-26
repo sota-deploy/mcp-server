@@ -42,6 +42,7 @@ You do NOT need to:
 If your app needs tables, run migrations on startup — there is no shell access to containers. Chain the migration command before your server start:
 
 - **Prisma**: Use `npx prisma db push && node server.js` as your start script. Note: use `db push` (not `migrate deploy`) because PgBouncer transaction mode blocks advisory locks. Add `?pgbouncer=true` to DATABASE_URL in your Prisma schema.
+- **PgBouncer driver settings** (tested against the platform's PgBouncer): psycopg 3 `prepare_threshold=None`, asyncpg `statement_cache_size=0`, SQLAlchemy `connect_args` with the same, node-postgres without named queries, postgres.js `prepare: false`, pgx `default_query_exec_mode=exec` (never `describe_exec`). No `LISTEN/NOTIFY`, no session `SET` (use `SET LOCAL`), no session advisory locks (use `pg_advisory_xact_lock`).
 - **Drizzle**: `npx drizzle-kit push && node server.js` — applies schema changes without migration files, works with PgBouncer.
 - **TypeORM**: `npx typeorm migration:run -d dist/data-source.js && node dist/server.js`
 - **Sequelize**: `npx sequelize-cli db:migrate && node server.js`
@@ -56,7 +57,8 @@ Full migration guide: https://sota.io/docs/guides/postgresql
 - `PORT` — Auto-injected. 8080 for auto-detected frameworks, or from Dockerfile EXPOSE for custom builds. Do not override.
 - `DATABASE_URL` — PostgreSQL connection string (auto-injected).
 - Custom vars set via `set-env` tool are encrypted at rest (AES-256-GCM).
-- Changing env vars does NOT auto-redeploy. Deploy again to apply.
+- Changing env vars does NOT restart the app. Call `redeploy` (same image, new env, no build) to apply.
+- `get-env` masks values; reveal one value (`key` + `reveal: true`) only when the user asks for it, a managed database value only with `include_managed: true` when the user explicitly asks. Masking keeps secrets out of the conversation; it is not access control.
 - `set-env` values are runtime only. Next.js `NEXT_PUBLIC_*` (build-time) values belong in a committed file such as `.env.production`.
 - Secrets never go into an uploaded file. A folder deploy uses `.sotaignore` (or the `.gitignore`, which never drops `.env.production` or `.env.example`); `.env`, `.env.local`, `.env.*.local` and `.envrc` are always left out.
 - Enterprise: apps on the same server can call each other without the sign-in and can forge identity headers; protect app-to-app calls with your own shared secret.
@@ -81,7 +83,8 @@ Manage via API:
 Call the `get-account` tool first. On a sota Enterprise account (company label `<label>`):
 
 - The app lives at `https://<app>.<label>.sota.io` behind the company's Microsoft 365 sign-in (sota Access). Never build a login.
-- Read `X-Sota-Access-User-Id`, `X-Sota-Access-Email` (lower-case it) and `X-Sota-Access-Name`; no role in the headers.
+- Key users on `X-Sota-Access-User-Id`; `X-Sota-Access-Email` (can be the `onmicrosoft.com` sign-in name) and `X-Sota-Access-Name` are for display only.
+- No role in the headers: keep a roles table keyed by the user id in the app's database and check roles by user id only. The e-mail is not a trust anchor; use it once to bootstrap the first admin (only while no admin exists, from an env var such as `ADMIN_EMAILS`, lower-cased), then clear the variable; further admins are appointed in the app by an admin. Never trust a role from the browser, never hard-code addresses.
 - Fail closed (401) without `X-Sota-Access-User-Id`, EXCEPT `GET /health` (200) and `GET /` (2xx/3xx, no data): the health gate and the edge check call them without identity.
 - Sign out: `/.sota/access/logout`. No public paths yet (no webhooks from outside).
 - After a deploy nobody can open the app until the owner approves people and ticks the app under Users & access in the dashboard. MCP cannot do that: tell the human.
@@ -94,9 +97,9 @@ Full checklist: the `enterprise-app-checklist` prompt or https://sota.io/docs/en
 0. get-account                    → Enterprise or not, limits, contract
 1. create-project "My App"        → get project_id
 2. (write your app code)          → must listen on PORT
-3. deploy project_id ./my-app     → uploads & builds
-4. get-logs project_id            → monitor build
-5. get-status project_id          → verify "running" status
+3. deploy project_id ./my-app     → uploads, builds, waits for running/failed (≤ 40 s)
+4. get-status wait_for=finished   → only if deploy said "not finished"
+5. get-logs project_id            → build log when it failed
 6. App is live!                   → https://{slug}.sota.io
 ```
 
@@ -134,7 +137,9 @@ module.exports = { output: 'standalone' }
 | Database connection refused | DATABASE_URL is auto-injected. Don't hardcode connection strings. |
 | Build fails | Check `get-logs` for missing dependencies or build errors. |
 | App not accessible | Use `get-status` — must show "running". Check health check (60s timeout). |
-| Env vars not applied | Changing env vars requires redeployment. Call `deploy` again. |
+| Env vars not applied | Changing env vars requires a restart. Call `redeploy`. |
+| Deploy failed: health check | The reason names the status the app answered on `/health` (e.g. `HTTP 500`), or connection refused / timeout / exited. |
+| Images missing after deploy | Inline files: pass binary files as `{ "content": "<base64>", "encoding": "base64" }`. |
 | Next.js NEXT_PUBLIC_* empty | `set-env` values are not visible at build time; put them in a committed `.env.production`. |
 | Migrations not running | Start script must chain migration before server. Example: `"start": "npx prisma db push && node server.js"` |
 | `prepared statement already exists` | PgBouncer conflict — add `?pgbouncer=true` to DATABASE_URL in Prisma schema. |

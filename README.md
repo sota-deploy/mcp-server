@@ -160,12 +160,13 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `get-account` | Plan limits, Enterprise facts and the build contract (call first) | *(none)* |
-| `deploy` | Deploy an app | `project_id`, one of `files` / `git_url` / `directory` |
+| `deploy` | Deploy an app and wait for the result (bounded) | `project_id`, one of `files` / `git_url` / `directory`, `wait?`, `max_wait_seconds?` |
+| `redeploy` | Restart the running image with the current env vars | `project_id`, `wait?`, `max_wait_seconds?` |
 | `get-logs` | Get the build and deploy log | `project_id`, `deployment_id?` |
 | `set-env` | Set environment variable | `project_id`, `key`, `value` |
-| `get-env` | List environment variables | `project_id` |
+| `get-env` | List environment variables (masked) | `project_id`, `key?`, `reveal?`, `include_managed?` |
 | `rollback` | Rollback to previous deployment | `project_id` |
-| `get-status` | Get deployment status | `project_id` |
+| `get-status` | Get deployment status, optionally wait | `project_id`, `wait_for?`, `deployment_id?`, `max_wait_seconds?` |
 | `list-projects` | List all projects | *(none)* |
 | `create-project` | Create a new project | `name` |
 | `delete-project` | Delete a project permanently | `project_id` |
@@ -181,9 +182,13 @@ Deploy an application to sota.io. Builds a tar.gz archive from one source and up
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_id` | string | Yes | Project ID to deploy to |
-| `files` | object | No | Map of relative path to UTF-8 content (inline source) |
+| `files` | object | No | Map of relative path to content: a string (UTF-8) or `{ "content": "<base64>", "encoding": "base64" }` for binary files; at most 200 files and 10 MB decoded |
 | `git_url` | string | No | Public git repository to shallow-clone with the local `git` (`git_branch` optional) |
 | `directory` | string | No | Directory to deploy (defaults to current working directory) |
+| `wait` | boolean | No | Wait until running or failed (default `true`) |
+| `max_wait_seconds` | number | No | Upper bound of the wait (default 40, max 50) |
+
+After the upload the tool waits on the server for the result, at most 40 seconds by default (50 at most, inside the usual 60-second MCP client request limit; progress notifications are sent when the client asks for them). A longer build returns "not finished" with `retry_after_seconds`; call `get-status` with `wait_for: "finished"` once. A failed health check names the HTTP status the app answered, or that nothing answered.
 
 `.git/`, `node_modules/`, `.DS_Store` and the local/secret env files `.env`, `.env.local`, `.env.*.local` and `.envrc` (any depth, any case) are never archived; set runtime secrets with `set-env`. Committed variants such as `.env.production`, `.env.development`, `.env.test` and `.env.example` are kept, because builds do not see `set-env` values (e.g. `NEXT_PUBLIC_*`).
 
@@ -206,9 +211,23 @@ Get the build and deploy log of a deployment (no runtime logs). If no deployment
 "Show me the build logs for my sota.io project"
 ```
 
+### `redeploy`
+
+Start the image of the running deployment again with the current environment variables, no build (applies `set-env`). The previous container serves until the new one is healthy. The API answers when the redeploy has finished; the tool waits up to `max_wait_seconds` and otherwise points to `get-status` with `wait_for: "finished"` while the redeploy continues.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_id` | string | Yes | Project ID |
+| `wait` | boolean | No | Wait for the result (default `true`) |
+| `max_wait_seconds` | number | No | Upper bound of the wait (default 40, max 50) |
+
+```
+"Restart my app with the new environment variables"
+```
+
 ### `set-env`
 
-Set an environment variable for a project.
+Set an environment variable for a project. Apply it with `redeploy`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -222,11 +241,14 @@ Set an environment variable for a project.
 
 ### `get-env`
 
-List environment variables for a project.
+List environment variables for a project with masked values (first 4 characters of values with 20 or more characters, and the length; managed database values show only their length). A single value in clear only with `key` and `reveal: true`; a managed database value also needs `include_managed: true`. Masking keeps secrets out of the conversation; it is not access control: whoever holds the connection or API key can read every value. **Changed in 1.8.0**: before, all values came back in clear.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_id` | string | Yes | Project ID |
+| `key` | string | No | Only this variable |
+| `reveal` | boolean | No | With `key`: the value in clear |
+| `include_managed` | boolean | No | With `reveal`: also for a managed database value |
 
 ```
 "Show all environment variables for my project"
@@ -246,11 +268,14 @@ Rollback a project to its previous deployment. This swaps the container image wi
 
 ### `get-status`
 
-Get the current deployment status for a project, including URL and recent deployment history.
+Get the current deployment status for a project, including URL, the reason of a failure and recent deployment history. `wait_for: "finished"` waits on the server (bounded) until the deployment is running, failed or stopped.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_id` | string | Yes | Project ID to check status for |
+| `wait_for` | `"finished"` | No | Wait until the deployment has finished |
+| `deployment_id` | string | No | Deployment to watch (defaults to the newest) |
+| `max_wait_seconds` | number | No | Upper bound of the wait (default 40, max 50) |
 
 ```
 "What's the status of my sota.io deployment?"

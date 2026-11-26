@@ -33,9 +33,12 @@ import { registerDeployTool } from './tools/deploy.js';
 import { registerLogsTool } from './tools/logs.js';
 import { registerEnvTools } from './tools/env.js';
 import { registerRollbackTool } from './tools/rollback.js';
+import { registerRedeployTool } from './tools/redeploy.js';
 import { registerStatusTool } from './tools/status.js';
 import { registerDomainTools } from './tools/domains.js';
 import { registerAccountTool, registerChecklistPrompt } from './tools/account.js';
+import { registerSourceTools } from './tools/source.js';
+import { sourceApi } from './lib/source-api.js';
 import { accountReader } from './lib/account.js';
 import { SERVER_INSTRUCTIONS } from './lib/guide.js';
 import { PACKAGE_VERSION } from './lib/version.js';
@@ -70,7 +73,9 @@ async function main() {
   registerLogsTool(server, client);
   registerEnvTools(server, client);
   registerRollbackTool(server, client);
+  registerRedeployTool(server, client);
   registerStatusTool(server, client);
+  registerSourceTools(server, sourceApi(apiURL, apiKey));
   registerDomainTools(server, client);
 
   // Start stdio transport

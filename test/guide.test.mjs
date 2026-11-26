@@ -18,6 +18,7 @@ const { registerDeployTool } = await import('../dist/tools/deploy.js');
 const { registerLogsTool } = await import('../dist/tools/logs.js');
 const { registerEnvTools } = await import('../dist/tools/env.js');
 const { registerRollbackTool } = await import('../dist/tools/rollback.js');
+const { registerRedeployTool } = await import('../dist/tools/redeploy.js');
 const { registerStatusTool } = await import('../dist/tools/status.js');
 const { registerDomainTools } = await import('../dist/tools/domains.js');
 const { accountReader } = await import('../dist/lib/account.js');
@@ -140,7 +141,7 @@ test('create-project and deploy name the app URL and the owner steps on Enterpri
     assert.ok(c.includes('Sign-in connection: saved but not tested'));
     const d = text(await client.callTool({ name: 'deploy', arguments: { project_id: 'p1', files: { 'server.js': 'x' } } }));
     assert.ok(d.includes('App URL: https://app.acme.sota.io'), d);
-    assert.ok(d.includes('Poll get-status'));
+    assert.ok(d.includes('Result:') && d.includes('Status: failed'), d);
     assert.ok(d.includes(guide.ENTERPRISE_ACCESS_STEPS[2]));
   } finally {
     await close();
@@ -367,11 +368,15 @@ test('MCP tools page lists every stdio tool', { skip: !existsSync(TOOLS_PAGE) &&
     registerLogsTool(s, sota);
     registerEnvTools(s, sota);
     registerRollbackTool(s, sota);
+    registerRedeployTool(s, sota);
     registerStatusTool(s, sota);
     registerDomainTools(s, sota);
   });
   try {
     const { tools } = await client.listTools();
+    assert.ok(tools.some((t) => t.name === 'redeploy'));
+    const count = page.match(/exposes (\d+) tools/);
+    assert.equal(Number(count?.[1]), tools.length, 'tool count in the intro');
     for (const t of tools) {
       assert.ok(page.includes(`## ${t.name}\n`), `tools page has no "## ${t.name}" section`);
     }

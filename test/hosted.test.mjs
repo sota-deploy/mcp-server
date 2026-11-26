@@ -69,13 +69,13 @@ async function deploySchema(hosted) {
 test('stdio deploy schema keeps directory, git_url and git_branch', async () => {
   const deploy = await deploySchema(false);
   const props = Object.keys(deploy.inputSchema.properties).sort();
-  assert.deepEqual(props, ['directory', 'files', 'git_branch', 'git_url', 'project_id']);
+  assert.deepEqual(props, ['directory', 'files', 'git_branch', 'git_url', 'max_wait_seconds', 'project_id', 'wait']);
 });
 
 test('hosted deploy schema offers only project_id + required files', async () => {
   const deploy = await deploySchema(true);
   const props = Object.keys(deploy.inputSchema.properties).sort();
-  assert.deepEqual(props, ['files', 'project_id']);
+  assert.deepEqual(props, ['files', 'max_wait_seconds', 'project_id', 'wait']);
   assert.deepEqual([...deploy.inputSchema.required].sort(), ['files', 'project_id']);
   assert.doesNotMatch(deploy.description, /\*\*directory\*\*|\*\*git_url\*\*/);
 });
@@ -209,7 +209,7 @@ test('hosted tools/list over HTTP advertises no directory / git_url', async () =
     assert.equal(res.status, 200);
     const { result } = await rpcResult(res);
     const deploy = result.tools.find((t) => t.name === 'deploy');
-    assert.deepEqual(Object.keys(deploy.inputSchema.properties).sort(), ['files', 'project_id']);
+    assert.deepEqual(Object.keys(deploy.inputSchema.properties).sort(), ['files', 'max_wait_seconds', 'project_id', 'wait']);
   });
 });
 
@@ -265,4 +265,65 @@ test('log lines redact emails, also inside error messages', () => {
   assert.match(line, /\[email redacted\]/);
   assert.equal(redactEmails('no pii here'), 'no pii here');
   assert.equal(errorMessage(new Error('mail x@y.de failed')), 'mail [email redacted] failed');
+});
+
+// A key of the right shape (never sent anywhere: tools/list does not call the API).
+const KEY_SHAPED = 'sota_' + '0'.repeat(40);
+const padded = (bytes) => ({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: { pad: 'x'.repeat(bytes) } } });
+
+test('hosted HTTP: an unauthenticated 1 MB post is refused with 413 before it is read', async () => {
+  await withServer(async (base) => {
+    const res = await rpc(base, padded(1024 * 1024));
+    assert.equal(res.status, 413);
+    const body = await res.json();
+    assert.equal(body.error.code, -32600);
+    assert.match(body.error.message, /64kb/);
+    // Small anonymous discovery still works.
+    const ok = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    assert.equal(ok.status, 200);
+    // A bearer token of the wrong shape gets the small limit too.
+    const fake = await rpc(base, padded(1024 * 1024), { authorization: 'Bearer not-a-real-token' });
+    assert.equal(fake.status, 413);
+  });
+});
+
+test('hosted HTTP: a key-shaped or verified credential may send a large body (base64 inline files up to 10 MB decoded)', async () => {
+  await withServer(async (base) => {
+    const res = await rpc(base, padded(6 * 1024 * 1024), { authorization: `Bearer ${KEY_SHAPED}` });
+    assert.equal(res.status, 200);
+    const { result } = await rpcResult(res);
+    assert.ok(result.tools.some((t) => t.name === 'redeploy'));
+    const jwt = await new SignJWT({ email: 'x@example.invalid' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject('00000000-0000-0000-0000-000000000001')
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .setAudience('authenticated')
+      .setIssuer('https://auth.sota.io/auth/v1')
+      .sign(new TextEncoder().encode(JWT_SECRET));
+    const viaJwt = await rpc(base, padded(2 * 1024 * 1024), { authorization: `Bearer ${jwt}` });
+    // Past the body limit: the bridge fails without a database (503), never 413.
+    assert.notEqual(viaJwt.status, 413);
+    const tooBig = await rpc(base, padded(17 * 1024 * 1024), { authorization: `Bearer ${KEY_SHAPED}` });
+    assert.equal(tooBig.status, 413);
+  });
+});
+
+test('hosted HTTP: at most two large bodies at a time, the next one is told to retry', async () => {
+  const { LARGE_BODIES } = await import('../dist/lib/upload-gate.js');
+  const held = [LARGE_BODIES.tryAcquire(), LARGE_BODIES.tryAcquire()];
+  try {
+    await withServer(async (base) => {
+      const res = await rpc(base, padded(2 * 1024 * 1024), { authorization: `Bearer ${KEY_SHAPED}` });
+      assert.equal(res.status, 503);
+      assert.equal(res.headers.get('retry-after'), '15');
+      assert.match((await res.json()).error.message, /busy.*retry in 15 s/);
+      // Small authenticated calls are not affected.
+      const small = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { authorization: `Bearer ${KEY_SHAPED}` });
+      assert.equal(small.status, 200);
+    });
+  } finally {
+    held.forEach((r) => r?.());
+  }
+  assert.equal(LARGE_BODIES.inUse, 0, 'slots are released');
 });
