@@ -61,7 +61,7 @@ Full migration guide: https://sota.io/docs/guides/postgresql
 - `get-env` masks values; reveal one value (`key` + `reveal: true`) only when the user asks for it, a managed database value only with `include_managed: true` when the user explicitly asks. Masking keeps secrets out of the conversation; it is not access control.
 - `set-env` values are runtime only. Next.js `NEXT_PUBLIC_*` (build-time) values belong in a committed file such as `.env.production`.
 - Secrets never go into an uploaded file. A folder deploy uses `.sotaignore` (or the `.gitignore`, which never drops `.env.production` or `.env.example`); `.env`, `.env.local`, `.env.*.local` and `.envrc` are always left out.
-- Enterprise: apps on the same server can call each other without the sign-in and can forge identity headers; protect app-to-app calls with your own shared secret.
+- Enterprise: the platform does not support calls between apps (names of other apps do not resolve). A direct call by address is unsupported, skips the sign-in and can carry any identity header: never treat it as a signed-in user. Shared code is built into each app; apps that need each other's data belong in one app.
 
 ## Custom Domains
 

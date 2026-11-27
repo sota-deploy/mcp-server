@@ -15,13 +15,16 @@ export interface ProjectToolOptions {
 export function registerProjectTools(server: McpServer, client: SotaClient, options: ProjectToolOptions = {}) {
   server.registerTool('list-projects', {
     title: 'List projects',
-    description: 'List all projects on your sota.io account. sota.io is an EU-native DevOps PaaS hosted in Germany (GDPR-compliant). Each project gets one live URL with automatic HTTPS (https://{slug}.sota.io, or https://{app}.{label}.sota.io behind the company sign-in on a sota Enterprise account; always show the URL this tool returns), a managed PostgreSQL 17 database created on the first deploy (DATABASE_URL auto-injected), PgBouncer connection pooling, daily backups, zero-downtime blue-green deployments, gVisor container isolation, and custom domain support (up to 5 per project with automatic HTTPS).',
+    description: 'List all projects on your sota.io account, plus the projects an account you are a team member of shares with you (marked "shared by <label>, you are developer|admin"). sota.io is an EU-native DevOps PaaS hosted in Germany (GDPR-compliant). Each project gets one live URL with automatic HTTPS (https://{slug}.sota.io, or https://{app}.{label}.sota.io behind the company sign-in on a sota Enterprise account; always show the URL this tool returns), a managed PostgreSQL 17 database created on the first deploy (DATABASE_URL auto-injected), PgBouncer connection pooling, daily backups, zero-downtime blue-green deployments, gVisor container isolation, and custom domain support (up to 5 per project with automatic HTTPS).',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async () => {
     const { projects } = await client.listProjects();
-    const lines = projects.map(
-      (p) => `${p.name} (${p.slug}) - ID: ${p.id} - ${projectUrl(p)}`
-    );
+    const lines = projects.map((p) => {
+      // The API marks projects shared with the person (role, account_label).
+      const s = p as typeof p & { role?: string; account_label?: string };
+      const shared = s.role && s.role !== 'owner' ? ` - shared${s.account_label ? ` by ${s.account_label}` : ''}, you are ${s.role}` : '';
+      return `${p.name} (${p.slug}) - ID: ${p.id} - ${projectUrl(p)}${shared}`;
+    });
     return {
       content: [
         {

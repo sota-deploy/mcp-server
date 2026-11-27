@@ -426,7 +426,7 @@ async function handleMcpRequest(req: Request, res: Response, path: string, mode:
       auditMeta.user_id = claims.sub;
       auditMeta.iss = claims.iss;
 
-      const bridge = await getOrProvisionApiKey(claims.sub);
+      const bridge = await getOrProvisionApiKey(claims.sub, rawToken);
       apiKey = bridge.apiKey;
       auditMeta.key_provisioned = bridge.created;
       auditMeta.key_rotated = bridge.rotated;

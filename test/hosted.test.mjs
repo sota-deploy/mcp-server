@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 // Env for dist/http-app.js must be set before it is imported: a JWT secret
-// so the JWT path is reachable, and no DATABASE_URL so the token bridge fails
+// so the JWT path is reachable, and an unreachable SOTA_API_URL so the token bridge fails
 // deterministically (bridge_error, logged with the audit fields).
 const JWT_SECRET = 'test-secret-for-mcp-1-hosted-tests-only-0123456789';
 process.env.SUPABASE_JWT_SECRET = JWT_SECRET;
@@ -248,7 +248,7 @@ test('request logs carry the user id, never the email', async () => {
         { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list-projects', arguments: {} } },
         { authorization: `Bearer ${jwt}` },
       );
-      // No DATABASE_URL in tests: the token bridge fails with a 503.
+      // Unreachable API in tests: the token bridge (POST /v1/auth/mcp-key) fails with a 503.
       assert.equal(res.status, 503);
     }),
   );
@@ -307,7 +307,7 @@ test('hosted HTTP: a key-shaped or verified credential may send a large body (ba
       .setIssuer('https://auth.sota.io/auth/v1')
       .sign(new TextEncoder().encode(JWT_SECRET));
     const viaJwt = await rpc(base, padded(2 * 1024 * 1024), { authorization: `Bearer ${jwt}` });
-    // Past the body limit: the bridge fails without a database (503), never 413.
+    // Past the body limit: the bridge fails without the API (503), never 413.
     assert.notEqual(viaJwt.status, 413);
     const tooBig = await rpc(base, padded(17 * 1024 * 1024), { authorization: `Bearer ${KEY_SHAPED}` });
     assert.equal(tooBig.status, 413);

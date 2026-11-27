@@ -86,6 +86,43 @@ test('get-account: Enterprise facts, contract and next steps', () => {
   }
 });
 
+test('get-account: a team member sees the account they act for and their role', () => {
+  const out = renderAccount({
+    ...ENTERPRISE,
+    user_id: 'dev1',
+    role: 'developer',
+    can_create_projects: false,
+    acting_for: { account_user_id: 'u1', account_label: 'acme', role: 'developer', project_scope: 'selected' },
+    memberships: [{ account_user_id: 'u1', account_label: 'acme', role: 'developer', project_scope: 'selected' }],
+    team_key_expires_at: '2027-02-24T10:00:00Z',
+  });
+  assert.ok(out.includes('This team key expires on 2027-02-24'), 'missing team key expiry');
+  for (const s of ['You work in another account', 'You are developer of the "acme" account', 'the apps shared with you',
+    'cannot create or delete apps', 'Company label: acme']) {
+    assert.ok(out.includes(s), `missing ${s}`);
+  }
+  assert.ok(!renderAccount(ENTERPRISE).includes('another account'), 'an owner sees no member section');
+});
+
+test('list-projects marks projects shared with the person', async () => {
+  const sota = {
+    async listProjects() {
+      return { projects: [
+        { id: 'p1', name: 'shop', slug: 'acme-shop', url: 'https://shop.acme.sota.io', role: 'developer', account_label: 'acme' },
+        { id: 'p2', name: 'mine', slug: 'mine', url: 'https://mine.sota.io', role: 'owner' },
+      ] };
+    },
+  };
+  const { client, close } = await connect((s) => registerProjectTools(s, sota, {}));
+  try {
+    const out = text(await client.callTool({ name: 'list-projects', arguments: {} }));
+    assert.match(out, /shop \(acme-shop\).*shared by acme, you are developer/);
+    assert.doesNotMatch(out, /mine \(mine\).*shared/);
+  } finally {
+    await close();
+  }
+});
+
 test('get-account: ordinary account gets no Enterprise contract', () => {
   const out = renderAccount(ORDINARY);
   assert.ok(out.includes('Not an Enterprise account'));

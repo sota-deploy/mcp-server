@@ -1,112 +1,40 @@
 /**
- * Token-to-Key bridge: maps a verified Claude JWT to an internal sota_xxx API key.
+ * Token-to-Key bridge: maps a verified sign-in token to the user's own
+ * sota_xxx connector key.
  *
- * Why: sota-api authenticates by `sota_xxx` keys (SHA-256 hashed in DB). Claude
- * gives us a JWT. We don't pass the JWT through to sota-api — instead, on first
- * sight of a JWT.sub, we provision a dedicated key tagged `source='claude'` and
- * cache the mapping in-memory + persisted in DB.
+ * Why: the tools call sota-api with a `sota_` key. Claude gives us a JWT
+ * (an OAuth connector token, or the session token create_account gets from
+ * the e-mail code). We exchange it once per few minutes for the user's single
+ * connector key (`source='claude'`).
  *
- * Benefits:
- *   - One revocation surface for the operator: "delete all source=claude keys for user X"
- *     immediately cuts off the Claude integration without touching the user's
- *     CLI/dashboard keys
- *   - Audit log can separate Claude-originated tool calls from CLI tool calls
- *   - Future plan-gating happens at the existing sota-api layer (no duplicate
- *     enforcement in sota-mcp)
+ * The exchange is an API call, `POST /v1/auth/mcp-key`
+ * with the user's own token: sota-api rotates the key, writes an audit row
+ * and refuses API keys (a key never mints a key). This process no longer
+ * writes the platform database. The key always belongs to the signed-in
+ * person, never to an account they are a member of: what it may reach is
+ * decided by sota-api on every request, so a member's key stops reaching the
+ * account's apps the moment the membership ends.
  *
- * Lifecycle:
- *   1. JWT in (verified, sub = user_id)
- *   2. SELECT id, key_prefix FROM api_keys WHERE user_id=$1 AND source='claude'
- *      LIMIT 1  -- one Claude key per user, reused across requests
- *   3. If not found:
- *      a. Generate sota_ + 40 hex (20 bytes random)
- *      b. SHA-256 the full key
- *      c. INSERT INTO api_keys (user_id, name='Claude MCP', key_hash, key_prefix,
- *         source='claude')
- *      d. Hold the plaintext only in memory for this request
- *   4. Cache user_id → plaintext key for the process lifetime (5-min TTL; new
- *      keys reuse the in-memory cache after restart by regenerating on first
- *      hit — that's wasteful only on cold start, acceptable)
- *
- * IMPORTANT: we never get the plaintext back from the DB on subsequent hits.
- * The plaintext is generated ONCE per user, cached in-memory while the
- * process lives. After a process restart, we have no plaintext for users
- * whose key already exists in DB → solution: REGENERATE (delete old row,
- * insert new). That's safe because each Claude session re-binds to whatever
+ * The plaintext lives only in this process's memory (5-minute TTL). After the
+ * TTL or a restart we ask again; the API then rotates the key (the old
+ * plaintext dies), which is fine because every session re-binds to whatever
  * key is current.
  */
-import crypto from "node:crypto";
-import fs from "node:fs";
-import tls from "node:tls";
-import { Pool } from "pg";
 import { errorMessage, logEvent } from "../lib/log.js";
 
-const DATABASE_URL = process.env.DATABASE_URL ?? "";
+const SOTA_API_URL = process.env.SOTA_API_URL ?? "https://api.sota.io";
+// MCP_BRIDGE_SECRET: the service secret the API requires on /v1/auth/mcp-key.
+const BRIDGE_SECRET = process.env.MCP_BRIDGE_SECRET ?? "";
+const BRIDGE_TIMEOUT_MS = 10_000;
 
-/**
- * TLS settings for the pg pool from DATABASE_URL.
- *
- * - `sslmode=verify-full&sslrootcert=<file>` (the self-hosted platform
- *   DB): the server certificate must chain to <file> and name the URL's
- *   host (an IP address is checked against the certificate's IP SANs; pg
- *   itself sends no SNI for an IP, so the check is done here explicitly).
- * - anything else (the Supabase pooler, whose CA chain pg cannot verify by
- *   default): encrypted, not verified, as before.
- * Both parameters are removed from the connection string: the ssl object is
- * the only TLS input pg gets.
- */
-export function poolTls(url: string, readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf8")): {
-  connectionString: string;
-  ssl: Record<string, unknown>;
-} {
-  const permissive = { rejectUnauthorized: false, require: true };
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return { connectionString: url.replace(/[?&]sslmode=[^&]*/i, ""), ssl: permissive };
-  }
-  const mode = u.searchParams.get("sslmode");
-  const rootcert = u.searchParams.get("sslrootcert");
-  u.searchParams.delete("sslmode");
-  u.searchParams.delete("sslrootcert");
-  const connectionString = u.toString();
-  if (mode === "verify-full" || mode === "verify-ca") {
-    if (!rootcert) throw new Error(`DATABASE_URL: sslmode=${mode} needs sslrootcert=<file>`);
-    const host = u.hostname.replace(/^\[|\]$/g, "");
-    const ssl: Record<string, unknown> = { ca: readFile(rootcert), rejectUnauthorized: true };
-    ssl.checkServerIdentity =
-      mode === "verify-full" ? (_h: string, cert: tls.PeerCertificate) => tls.checkServerIdentity(host, cert) : () => undefined;
-    return { connectionString, ssl };
-  }
-  return { connectionString, ssl: permissive };
-}
-let pool: Pool | null = null;
-
-function getPool(): Pool {
-  if (!pool) {
-    if (!DATABASE_URL) {
-      throw new Error(
-        "DATABASE_URL not configured — sota-mcp cannot bridge tokens to API keys",
-      );
-    }
-    const { connectionString, ssl } = poolTls(DATABASE_URL);
-    pool = new Pool({
-      connectionString,
-      max: 5,
-      idleTimeoutMillis: 30_000,
-      ssl: ssl as unknown as object,
-    });
-    pool.on("error", (err) => {
-      // Best-effort logging; pool keeps working across single-conn errors
-      logEvent("error", { event: "pg_pool_error", error_message: errorMessage(err) });
-    });
-  }
-  return pool;
+/** Why the hosted server must not start with this secret, or null when it is fine. */
+export function bridgeSecretProblem(secret: string | undefined): string | null {
+  if (!secret) return "MCP_BRIDGE_SECRET is not set: the hosted MCP server cannot mint connector keys (POST /v1/auth/mcp-key)";
+  if (secret.length < 32) return "MCP_BRIDGE_SECRET must be at least 32 characters";
+  return null;
 }
 
 // In-memory cache: userId → { plaintextKey, expiresAt }
-// TTL is short (5 min) because we'd rather rotate-on-restart than ever leak.
 const cache = new Map<string, { plaintext: string; expiresAt: number }>();
 const CACHE_TTL_MS = 5 * 60_000;
 
@@ -124,12 +52,9 @@ function cacheSet(userId: string, plaintext: string): void {
   cache.set(userId, { plaintext, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-function generateKey(): { plaintext: string; hash: string; prefix: string } {
-  const randBytes = crypto.randomBytes(20);
-  const plaintext = "sota_" + randBytes.toString("hex"); // sota_ + 40 hex
-  const hash = crypto.createHash("sha256").update(plaintext).digest("hex");
-  const prefix = plaintext.slice(0, 13); // "sota_" + first 8 hex
-  return { plaintext, hash, prefix };
+/** Test hook: forget every cached key. */
+export function clearBridgeCache(): void {
+  cache.clear();
 }
 
 export interface BridgeResult {
@@ -137,93 +62,89 @@ export interface BridgeResult {
   apiKey: string;
   /** Whether a new key row was created (true on first sight of this user) */
   created: boolean;
-  /** Whether the existing DB row was rotated (true on cold-start with pre-existing row) */
+  /** Whether an existing key was rotated (a fresh plaintext for an existing row) */
   rotated: boolean;
+}
+
+/** Error of the bridge call (network, non-2xx). The message never holds a token. */
+export class BridgeError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "BridgeError";
+  }
+}
+
+async function mint(token: string, ensurePlan: boolean, apiUrl: string): Promise<{ api_key: string; created: boolean }> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}/v1/auth/mcp-key`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        // Only the hosted MCP server may mint connector keys (shared service
+        // secret, compared in constant time by the API).
+        "X-Sota-Bridge-Secret": BRIDGE_SECRET,
+      },
+      body: JSON.stringify({ ensure_plan: ensurePlan }),
+      signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new BridgeError(`connector key request failed: ${errorMessage(err)}`);
+  }
+  if (!res.ok) {
+    let code = "";
+    try {
+      code = ((await res.json()) as { error?: { code?: string } })?.error?.code ?? "";
+    } catch {
+      // body is not JSON
+    }
+    throw new BridgeError(`connector key request answered HTTP ${res.status}${code ? ` (${code})` : ""}`, res.status);
+  }
+  const body = (await res.json()) as { data?: { api_key?: string; created?: boolean }; api_key?: string; created?: boolean };
+  const data = body.data ?? body;
+  if (typeof data.api_key !== "string" || !data.api_key.startsWith("sota_")) {
+    throw new BridgeError("connector key response has no key");
+  }
+  return { api_key: data.api_key, created: data.created === true };
 }
 
 /**
  * Net-new user provisioning: called from the `create_account` tool after
- * Supabase verified the OTP. Inserts the user_plans Free-tier row (if not
- * already present) AND a `source='claude'` API key. Returns the key plaintext.
- *
- * Idempotent on user_plans (ON CONFLICT DO NOTHING) — covers the case where
- * the user already exists with a plan but no Claude key (e.g. they signed up
- * via the web first, then called create_account from Claude).
+ * Supabase verified the OTP, with the session's access token. The API
+ * creates the free plan row if the user has none (an existing row stays as
+ * it is) and returns the connector key.
  */
 export async function provisionPlanAndKey(
   userId: string,
+  accessToken: string,
+  apiUrl: string = SOTA_API_URL,
 ): Promise<BridgeResult> {
-  const client = await getPool().connect();
-  try {
-    // Free-tier defaults (mirrors the free row of the API's plans catalog,
-    // migration 039 / model.DefaultPlans).
-    // TODO: this insert goes away when the bridge stops
-    // writing plans; until then a change of the free row's limits must be
-    // mirrored here.
-    await client.query(
-      `INSERT INTO user_plans (
-         user_id, plan, max_projects, max_memory_mb, max_cpu_millicores,
-         max_databases, max_custom_domains, max_builds_per_day,
-         source, onboarded_at
-       ) VALUES ($1, 'free', 3, 256, 500, 1, 0, 10, 'claude', now())
-       ON CONFLICT (user_id) DO NOTHING`,
-      [userId],
-    );
-  } catch (err) {
-    throw new Error(
-      `user_plans provisioning failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  } finally {
-    client.release();
-  }
-  return getOrProvisionApiKey(userId);
+  const { api_key, created } = await mint(accessToken, true, apiUrl);
+  cacheSet(userId, api_key);
+  return { apiKey: api_key, created, rotated: !created };
 }
 
 /**
- * Look up or provision a `source='claude'` API key for the given user.
- *
- * On cold start (no in-memory plaintext), if a DB row already exists we have
- * no plaintext recoverable. Solution: rotate — delete the old row, insert a
- * fresh key, return the new plaintext. The Claude integration continues to
- * work transparently because sota-mcp does the lookup on every request.
+ * The user's connector key for this request: from the cache, or freshly
+ * issued by sota-api for the user's verified token.
  */
 export async function getOrProvisionApiKey(
   userId: string,
+  token: string,
+  apiUrl: string = SOTA_API_URL,
 ): Promise<BridgeResult> {
   const cached = cacheGet(userId);
   if (cached) return { apiKey: cached, created: false, rotated: false };
-
-  const client = await getPool().connect();
   try {
-    const existing = await client.query(
-      `SELECT id FROM api_keys WHERE user_id = $1 AND source = 'claude' LIMIT 1`,
-      [userId],
-    );
-
-    const { plaintext, hash, prefix } = generateKey();
-
-    if (existing.rowCount === 0) {
-      // First-time: simple INSERT
-      await client.query(
-        `INSERT INTO api_keys (user_id, name, key_hash, key_prefix, source)
-         VALUES ($1, $2, $3, $4, 'claude')`,
-        [userId, "Claude MCP", hash, prefix],
-      );
-      cacheSet(userId, plaintext);
-      return { apiKey: plaintext, created: true, rotated: false };
-    }
-
-    // Cold-start rotation: replace the existing row's hash + prefix so the
-    // freshly minted plaintext becomes the active key for this user.
-    await client.query(
-      `UPDATE api_keys
-       SET key_hash = $2, key_prefix = $3, last_used_at = now()
-       WHERE id = $1`,
-      [existing.rows[0].id, hash, prefix],
-    );
-    cacheSet(userId, plaintext);
-    return { apiKey: plaintext, created: false, rotated: true };
-  } finally {
-    client.release();
+    const { api_key, created } = await mint(token, false, apiUrl);
+    cacheSet(userId, api_key);
+    return { apiKey: api_key, created, rotated: !created };
+  } catch (err) {
+    logEvent("error", { event: "bridge_mint_failed", error_message: errorMessage(err) });
+    throw err;
   }
 }

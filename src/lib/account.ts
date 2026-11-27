@@ -40,11 +40,30 @@ export interface EnterpriseSummary {
   sign_in_setup_url: string;
 }
 
+/** An account the signed-in person is a member of (team). */
+export interface AccountMembership {
+  account_user_id: string;
+  account_label?: string;
+  /** developer | admin */
+  role: string;
+  /** all | selected */
+  project_scope: string;
+}
+
 export interface Account {
   user_id: string;
   plan: AccountPlan;
   usage: AccountUsage | null;
   enterprise: EnterpriseSummary | null;
+  /** owner, or developer/admin when the person acts for another account (older APIs: absent). */
+  role?: string;
+  /** false when the person works in another account and does not create projects there. */
+  can_create_projects?: boolean;
+  /** The account plan/usage/enterprise describe when role is not owner. */
+  acting_for?: AccountMembership | null;
+  memberships?: AccountMembership[];
+  /** Set when the request used a team key (expires 90 days after creation). */
+  team_key_expires_at?: string;
 }
 
 /** Reads the account; null when the API has no /v1/account (older API). */
@@ -70,11 +89,18 @@ export function accountReader(
     if (res.status === 404 || res.status === 405) return null;
     if (!res.ok) {
       let detail = '';
+      let code = '';
       try {
-        const body = (await res.json()) as { error?: { message?: string } };
+        const body = (await res.json()) as { error?: { message?: string; code?: string } };
         detail = body?.error?.message ?? '';
+        code = body?.error?.code ?? '';
       } catch {
         // no JSON body
+      }
+      // A team key that expired, was revoked or whose membership ended: the
+      // API's message is written for the person, show it as it is.
+      if (res.status === 401 && code.startsWith('team_key_') && detail) {
+        throw new AccountReadError(detail);
       }
       throw new AccountReadError(`GET /v1/account failed (HTTP ${res.status})${detail ? `: ${detail}` : ''}`);
     }

@@ -171,8 +171,8 @@ sota.io is an EU-native PaaS hosted in Germany — GDPR-compliant by default, no
             ],
           };
         }
-        const session = (await verifyRes.json()) as { user?: SupabaseUser };
-        if (!session.user?.id || !session.user?.email) {
+        const session = (await verifyRes.json()) as { user?: SupabaseUser; access_token?: string };
+        if (!session.user?.id || !session.user?.email || !session.access_token) {
           return {
             isError: true,
             content: [
@@ -185,7 +185,7 @@ sota.io is an EU-native PaaS hosted in Germany — GDPR-compliant by default, no
         }
 
         // Provision: user_plans (Free tier) + sota_xxx key tagged source=claude
-        const result = await provisionPlanAndKey(session.user.id);
+        const result = await provisionPlanAndKey(session.user.id, session.access_token);
 
         // Deliberately neutral, descriptive content with no instructions
         // directing the LLM or the user to modify any client configuration.
