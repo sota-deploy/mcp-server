@@ -64,7 +64,9 @@ export function renderAccount(account: Account | null): string {
           '# You work in another account',
           `You are ${a.role} of ${a.account_label ? `the "${a.account_label}" account` : 'another account'} (${a.project_scope === 'all' ? 'all its apps' : 'the apps shared with you'}). The limits above are that account's.`,
           'list-projects shows the apps you may work on. You can deploy, redeploy, roll back, read logs and source, set env vars and use the database of those apps.',
-          'You cannot create or delete apps there, delete databases or change domains: ask the account owner.',
+          a.role === 'admin'
+            ? 'As admin you can also create new apps there (create-project; the app belongs to the account and counts against its app limit). You cannot delete apps, delete databases or change domains: ask the account owner.'
+            : 'You cannot create or delete apps there, delete databases or change domains: ask an admin or the account owner.',
           ...(account.team_key_expires_at
             ? [`This team key expires on ${account.team_key_expires_at.slice(0, 10)}; the person creates a new one in the sota dashboard under Team keys.`]
             : []),
@@ -75,7 +77,11 @@ export function renderAccount(account: Account | null): string {
       );
     } else if ((account.memberships?.length ?? 0) > 1) {
       parts.push(
-        `# Accounts you work in\n${account.memberships!.map((m) => `- ${m.account_label || m.account_user_id}: ${m.role}`).join('\n')}\nlist-projects shows the shared apps of each.`,
+        `# Accounts you work in\n${account.memberships!.map((m) => `- ${m.account_label || m.account_user_id}: ${m.role}`).join('\n')}\nlist-projects shows the shared apps of each.${
+          account.create_accounts && account.create_accounts.length > 1
+            ? ` create-project needs account (one of: ${account.create_accounts.join(', ')}; "own" is your own account).`
+            : ''
+        }`,
       );
     }
     const ent = account.enterprise;

@@ -87,7 +87,7 @@ Call the `get-account` tool first. On a sota Enterprise account (company label `
 - No role in the headers: keep a roles table keyed by the user id in the app's database and check roles by user id only. The e-mail is not a trust anchor; use it once to bootstrap the first admin (only while no admin exists, from an env var such as `ADMIN_EMAILS`, lower-cased), then clear the variable; further admins are appointed in the app by an admin. Never trust a role from the browser, never hard-code addresses.
 - Fail closed (401) without `X-Sota-Access-User-Id`, EXCEPT `GET /health` (200) and `GET /` (2xx/3xx, no data): the health gate and the edge check call them without identity.
 - Sign out: `/.sota/access/logout`. No public paths yet (no webhooks from outside).
-- After a deploy nobody can open the app until the owner approves people and ticks the app under Users & access in the dashboard. MCP cannot do that: tell the human.
+- After a deploy only approved people with "All apps, including new ones" can open the app; everyone else needs the owner or an admin to approve them and tick the app under Users & access in the dashboard. MCP cannot do that: tell the human.
 
 Full checklist: the `enterprise-app-checklist` prompt or https://sota.io/docs/enterprise/build-with-ai
 

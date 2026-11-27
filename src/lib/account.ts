@@ -57,8 +57,10 @@ export interface Account {
   enterprise: EnterpriseSummary | null;
   /** owner, or developer/admin when the person acts for another account (older APIs: absent). */
   role?: string;
-  /** false when the person works in another account and does not create projects there. */
+  /** false when the person cannot create projects with this credential (a developer of another account). */
   can_create_projects?: boolean;
+  /** Values create-project takes as `account` ("own" = the person's own account). */
+  create_accounts?: string[];
   /** The account plan/usage/enterprise describe when role is not owner. */
   acting_for?: AccountMembership | null;
   memberships?: AccountMembership[];

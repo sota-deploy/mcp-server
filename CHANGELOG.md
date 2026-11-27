@@ -1,5 +1,13 @@
 # Changelog — @sota-io/mcp
 
+## 1.11.0 — 2026-11-27
+
+- **Admins create apps in the account they are admin of.** `create-project` works for an admin of a sota Enterprise account with their team key (local server), their own sign-in through the hosted connector, or the dashboard: the new app belongs to the account, gets the account's address (`https://<app>.<label>.sota.io`), runs on the account's own server and counts against the account's app limit. Developers still cannot create apps; they get a plain answer naming whom to ask. Needs a sota API with this rule; against an older one the create is refused as before.
+- `create-project` takes an optional `account`: the account's label (`get-account` lists where you can create), or `own` for your own account. A team key always creates in its own account. When you can create in more than one account and leave `account` out, the tool answers with the choices.
+- The `create-project` result names the account the app was created in (and your role there) and repeats the platform's notes: nobody can open a new Enterprise app until the owner or an admin ticks people for it under Users & access, and developers limited to selected apps do not get it automatically. A refused create (app limit reached, developer, invitation not accepted yet, removed from the team) is a readable tool error instead of an exception.
+- `get-account` tells an admin that they can create apps in the account, and a developer to ask an admin or the owner.
+- Corrected access text: a new Enterprise app opens right away for people approved with "All apps, including new ones"; nobody else can open it until it is ticked under Users & access. The `create-project` result says which case applies (with the number of such people), and the next steps, instructions and checklist no longer say that nobody can open a new app.
+
 ## 1.10.0 — 2026-11-27
 
 - **Team keys for colleagues on a sota Enterprise account.** The account owner invites colleagues as **developer** or **admin** (dashboard → Team). After accepting the invitation, a colleague creates a **team key** in the dashboard (Team keys) and starts the local server with it: `SOTA_API_KEY=<team key> npx -y @sota-io/mcp`. A team key works only on the apps the account shares with that person, with their current role, and expires 90 days after it was created. The hosted connector (`https://mcp.sota.io/mcp`) works for colleagues with their own sign-in, without a key.

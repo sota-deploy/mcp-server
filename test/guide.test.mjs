@@ -104,6 +104,106 @@ test('get-account: a team member sees the account they act for and their role', 
   assert.ok(!renderAccount(ENTERPRISE).includes('another account'), 'an owner sees no member section');
 });
 
+test('create-project as a team admin: passes account, names the account and the notices', async () => {
+  let sent;
+  const sota = {
+    async createProject(opts) {
+      sent = opts;
+      return {
+        id: 'p9', name: opts.name, slug: `acme-${opts.name}`, url: `https://${opts.name}.acme.sota.io`,
+        account: { user_id: 'u1', label: 'acme', enterprise: true, role: 'admin', selected_by: 'explicit' },
+        notices: ['Nobody can open this app yet: no app users are granted.'],
+      };
+    },
+  };
+  const admin = {
+    ...ENTERPRISE, user_id: 'adm1', role: 'admin',
+    acting_for: { account_user_id: 'u1', account_label: 'acme', role: 'admin', project_scope: 'all' },
+  };
+  const { client, close } = await connect((s) => registerProjectTools(s, sota, { readAccount: async () => admin }));
+  try {
+    const out = text(await client.callTool({ name: 'create-project', arguments: { name: 'hr', account: 'acme' } }));
+    assert.equal(sent.account, 'acme');
+    assert.ok(out.includes('Account: acme (you are admin)'), out);
+    assert.ok(out.includes('Nobody can open this app yet'), out);
+    assert.ok(out.includes('Users & access: https://sota.io/dashboard/enterprise/users'), out);
+    // Without account, nothing extra is sent.
+    await client.callTool({ name: 'create-project', arguments: { name: 'x' } });
+    assert.equal('account' in sent, false);
+  } finally {
+    await close();
+  }
+});
+
+test('create-project: a refusal comes back as a readable tool error; no foreign next steps', async () => {
+  const refusing = {
+    async createProject() {
+      throw new Error('You are a developer of acme. Developers cannot create new apps there: ask an admin or the owner of acme to create the app (and share it with you).');
+    },
+  };
+  const { client, close } = await connect((s) => registerProjectTools(s, refusing, { readAccount: async () => ENTERPRISE }));
+  try {
+    const res = await client.callTool({ name: 'create-project', arguments: { name: 'x' } });
+    assert.equal(res.isError, true);
+    assert.ok(text(res).includes('ask an admin or the owner of acme'), text(res));
+  } finally {
+    await close();
+  }
+  // Created in another account than the one get-account describes (the
+  // owner of one account who is admin of another): that account's notices,
+  // not the owner's own Users & access links.
+  const other = {
+    async createProject({ name }) {
+      return { id: 'p2', name, slug: `beta-${name}`, url: `https://${name}.beta.sota.io`,
+        account: { user_id: 'u2', label: 'beta', enterprise: true, role: 'admin', selected_by: 'explicit' }, notices: ['N'] };
+    },
+  };
+  const c2 = await connect((s) => registerProjectTools(s, other, { readAccount: async () => ENTERPRISE }));
+  try {
+    const out = text(await c2.client.callTool({ name: 'create-project', arguments: { name: 'x', account: 'beta' } }));
+    assert.ok(out.includes('Account: beta (you are admin)') && out.includes('sota Enterprise app'), out);
+    assert.ok(!out.includes('https://sota.io/dashboard/enterprise/users'), out);
+  } finally {
+    await c2.close();
+  }
+});
+
+test('create-project relays the truthful access notice (all-apps users or nobody)', async () => {
+  for (const [n, notice, absent] of [
+    [2, 'People with access to all apps (2) can open it right away; tick others under Users & access in the sota dashboard.', 'Nobody can open this app yet'],
+    [0, 'Nobody can open this app yet: no app users are granted.', 'can open it right away;'],
+  ]) {
+    const sota = {
+      async createProject({ name }) {
+        return { id: 'p3', name, slug: `acme-${name}`, url: `https://${name}.acme.sota.io`,
+          account: { user_id: 'u1', label: 'acme', enterprise: true, all_apps_users: n, role: 'owner', selected_by: 'own' }, notices: [notice] };
+      },
+    };
+    const { client, close } = await connect((s) => registerProjectTools(s, sota, { readAccount: async () => ENTERPRISE }));
+    try {
+      const out = text(await client.callTool({ name: 'create-project', arguments: { name: 'app' } }));
+      assert.ok(out.includes(notice), out);
+      assert.ok(!out.includes(absent), out);
+      assert.ok(!out.includes('Nobody can open a new app yet'), 'the old unconditional step is gone');
+    } finally {
+      await close();
+    }
+  }
+});
+
+test('get-account: an admin is told they can create apps, a developer whom to ask', () => {
+  const base = { ...ENTERPRISE, user_id: 'm1', memberships: [] };
+  const adminOut = renderAccount({ ...base, role: 'admin', acting_for: { account_user_id: 'u1', account_label: 'acme', role: 'admin', project_scope: 'all' } });
+  assert.ok(adminOut.includes('As admin you can also create new apps there'), adminOut);
+  const devOut = renderAccount({ ...base, role: 'developer', acting_for: { account_user_id: 'u1', account_label: 'acme', role: 'developer', project_scope: 'all' } });
+  assert.ok(devOut.includes('ask an admin or the account owner') && !devOut.includes('As admin you can'), devOut);
+  const several = renderAccount({
+    ...ORDINARY, user_id: 'm2', create_accounts: ['acme', 'beta'],
+    memberships: [{ account_user_id: 'u1', account_label: 'acme', role: 'admin', project_scope: 'all' }, { account_user_id: 'u2', account_label: 'beta', role: 'admin', project_scope: 'all' }],
+  });
+  assert.ok(several.includes('create-project needs account (one of: acme, beta'), several);
+});
+
 test('list-projects marks projects shared with the person', async () => {
   const sota = {
     async listProjects() {
